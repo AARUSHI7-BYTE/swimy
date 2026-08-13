@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "909824891011",
+    "project_id": "swimy-2c95c",
+    "storage_bucket": "swimy-2c95c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:909824891011:android:70947cbb96b57e5f8563b6",
+        "android_client_info": {
+          "package_name": "com.aaru.Swimy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQmldkwkFI3qv90wrjmcy3P-qgA2ZhvJk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

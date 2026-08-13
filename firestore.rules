@@ -1,0 +1,76 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && currentUser().role == 'admin';
+    }
+
+    function isFacility() {
+      return isSignedIn() && currentUser().role == 'facility';
+    }
+
+    function isAssignedToPool(poolId) {
+      return (isAdmin() || isFacility()) && poolId in currentUser().poolIds;
+    }
+
+    // Each user manages only their own profile doc. Role and poolIds can only
+    // be set to defaults on creation and never changed by the user themself -
+    // admin/facility access must be granted manually (e.g. via Firebase console).
+    // Admin/facility staff can also read any user doc (including by phone
+    // number query) to detect a returning member during membership sign-up.
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin() || isFacility();
+      allow create: if isOwner(userId)
+        && request.resource.data.role == 'user'
+        && request.resource.data.poolIds.size() == 0;
+      allow update: if isOwner(userId)
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.poolIds == resource.data.poolIds;
+      allow delete: if false;
+    }
+
+    // Pool catalog is readable by any signed-in user (to browse/search).
+    // Admins manage the catalog itself (add/edit pools). Facility accounts
+    // assigned to a pool (and admins) may read/write data scoped under that
+    // pool (bookings, entries, etc.).
+    match /pools/{poolId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin();
+
+      match /{document=**} {
+        allow read, write: if isAssignedToPool(poolId);
+      }
+
+      // Members need to read their own membership doc (keyed by phone number)
+      // so activate/deactivate toggles made by facility staff are reflected
+      // on the member-facing account screen.
+      match /memberships/{membershipId} {
+        // users/{uid}.phoneNumber is stored as "+91XXXXXXXXXX" while
+        // membership.phone is the raw 10-digit number - compare accordingly.
+        allow read: if isSignedIn() && currentUser().phoneNumber == "+91" + resource.data.phone;
+      }
+
+      // Consumers need to read their own entry docs (home.tsx subscribes to
+      // the signed-in user's latest entry to show check-in/out status and
+      // amount due). Only staff assigned to the pool can write entries -
+      // check-in/check-out always happens via a facility scan.
+      match /entries/{entryId} {
+        allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      }
+    }
+  }
+}

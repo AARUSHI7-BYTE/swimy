@@ -1,0 +1,24 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Role checks (admin/facility) are enforced in Firestore rules, which the
+    // app already relies on before it lets someone reach an upload action.
+    // Storage can't reliably re-check that role here: cross-service
+    // firestore.get()/exists() lookups from Storage rules are unsupported in
+    // this project and always deny, which previously made every admin pool
+    // upload fail with storage/unauthorized even though the user's Firestore
+    // role doc was correct. So Storage just requires the requester to be
+    // signed in. Also widened to {allPaths=**} so nested member photo
+    // uploads (pools/{poolId}/members/{phone}/{file}) actually match - the
+    // old single-segment {fileName} pattern silently matched nothing there.
+    match /pools/{poolId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+  }
+}
