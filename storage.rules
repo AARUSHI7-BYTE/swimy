@@ -20,5 +20,12 @@ service firebase.storage {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
     }
+
+    // Swimmer profile photos - readable by any signed-in user (facility scan
+    // pop-up needs to show them), writable only by the owning account.
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
   }
 }

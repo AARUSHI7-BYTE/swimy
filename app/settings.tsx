@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useLanguage } from "./language-context";
-import { useTheme } from "./theme-context";
+import { useLanguage } from "../context/language-context";
+import { useTheme } from "../context/theme-context";
 import { ThemeColors, ThemeMode } from "../lib/theme";
 import { Language } from "../lib/i18n";
 import { safeGoBack } from "../lib/navigation";

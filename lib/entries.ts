@@ -1,4 +1,5 @@
-import { addDoc, collection, doc, getDocs, getFirestore, onSnapshot, query, updateDoc, where, type Unsubscribe } from "@react-native-firebase/firestore";
+import { addDoc, collection, doc, getDocs, getFirestore, increment, onSnapshot, query, updateDoc, where, type Unsubscribe } from "@react-native-firebase/firestore";
+import type { PricingConfig } from "./pricing";
 
 const db = getFirestore();
 
@@ -16,6 +17,12 @@ export type Entry = {
   enteredAt: number;
   exitedAt: number | null;
   price: number | null;
+  // Pricing config captured at check-in time, so a later pricing-model change
+  // by the facility never reprices a session that's already in progress.
+  pricingSnapshot?: PricingConfig;
+  // Set when this visit was let in free against a membership session instead
+  // of being billed - checkout skips computeDue and deducts a session instead.
+  membershipId?: string;
 };
 
 function entriesCollection(poolId: string) {
@@ -31,6 +38,8 @@ function toEntry(id: string, poolId: string, data: Record<string, unknown>): Ent
     enteredAt: typeof data.enteredAt === "number" ? data.enteredAt : 0,
     exitedAt: typeof data.exitedAt === "number" ? data.exitedAt : null,
     price: typeof data.price === "number" ? data.price : null,
+    pricingSnapshot: (data.pricingSnapshot as PricingConfig | undefined) ?? undefined,
+    membershipId: typeof data.membershipId === "string" ? data.membershipId : undefined,
   };
 }
 
@@ -41,7 +50,13 @@ export async function getOpenEntry(poolId: string, uid: string): Promise<Entry |
   return toEntry(docSnap.id, poolId, docSnap.data());
 }
 
-export async function checkIn(poolId: string, uid: string, people: EntryPerson[]): Promise<Entry> {
+export async function checkIn(
+  poolId: string,
+  uid: string,
+  people: EntryPerson[],
+  pricingSnapshot: PricingConfig,
+  membershipId?: string
+): Promise<Entry> {
   const existing = await getOpenEntry(poolId, uid);
   if (existing) {
     throw new Error("Already checked in at this pool.");
@@ -53,8 +68,11 @@ export async function checkIn(poolId: string, uid: string, people: EntryPerson[]
     enteredAt,
     exitedAt: null,
     price: null,
+    pricingSnapshot,
+    ...(membershipId ? { membershipId } : {}),
   });
-  return { id: docRef.id, poolId, uid, people, enteredAt, exitedAt: null, price: null };
+  await updateDoc(doc(db, "pools", poolId), { liveOccupancy: increment(1) }).catch(() => {});
+  return { id: docRef.id, poolId, uid, people, enteredAt, exitedAt: null, price: null, pricingSnapshot, membershipId };
 }
 
 export async function checkOut(poolId: string, uid: string, price: number): Promise<Entry> {
@@ -64,6 +82,7 @@ export async function checkOut(poolId: string, uid: string, price: number): Prom
   }
   const exitedAt = Date.now();
   await updateDoc(doc(db, "pools", poolId, "entries", existing.id), { exitedAt, price });
+  await updateDoc(doc(db, "pools", poolId), { liveOccupancy: increment(-1) }).catch(() => {});
   return { ...existing, exitedAt, price };
 }
 
@@ -122,28 +141,3 @@ export function subscribeToLatestEntry(poolId: string, uid: string, callback: (e
   );
 }
 
-export type DueBreakdown = {
-  minutes: number;
-  slotPrice: number;
-  overageHours: number;
-  overageAmount: number;
-  total: number;
-  note: string;
-};
-
-export function computeDue(pricePerVisit: number, enteredAt: number, exitedAt: number): DueBreakdown {
-  const minutes = Math.max(0, Math.round((exitedAt - enteredAt) / 60000));
-  if (minutes <= 60) {
-    return { minutes, slotPrice: pricePerVisit, overageHours: 0, overageAmount: 0, total: pricePerVisit, note: "Within 1-hour slot — no overage" };
-  }
-  const overageHours = Math.ceil((minutes - 60) / 60);
-  const overageAmount = overageHours * pricePerVisit;
-  return {
-    minutes,
-    slotPrice: pricePerVisit,
-    overageHours,
-    overageAmount,
-    total: pricePerVisit + overageAmount,
-    note: `${overageHours} extra hour${overageHours > 1 ? "s" : ""} beyond the 1-hour slot`,
-  };
-}

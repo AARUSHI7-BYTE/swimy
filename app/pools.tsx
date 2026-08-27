@@ -1,14 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { getAllPools, Pool } from "../lib/firestore";
+import { Pool } from "../lib/firestore";
 import { getPoolImage } from "../lib/pool-images";
+import { errorMessage } from "../lib/query-client";
+import { usePoolsQuery } from "../lib/queries";
 import { ThemeColors } from "../lib/theme";
-import { useAppContext } from "./app-context";
-import { useLanguage } from "./language-context";
-import { useTheme } from "./theme-context";
+import { useAppContext } from "../context/app-context";
+import { useLanguage } from "../context/language-context";
+import { useTheme } from "../context/theme-context";
 
 function matchesFilter(pool: Pool, filter: string) {
   if (filter === "Covered") return pool.covered;
@@ -28,16 +29,7 @@ export default function Pools() {
   ];
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
-  const [pools, setPools] = useState<Pool[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useFocusEffect(
-    useCallback(() => {
-      getAllPools()
-        .then(setPools)
-        .finally(() => setIsLoading(false));
-    }, [])
-  );
+  const { data: pools = [], isLoading, isError, error, refetch } = usePoolsQuery();
 
   const filteredPools = useMemo(() => pools.filter((pool) => (!activeFilter || matchesFilter(pool, activeFilter)) && pool.name.toLowerCase().includes(query.toLowerCase())), [pools, query, activeFilter]);
 
@@ -53,8 +45,24 @@ export default function Pools() {
         <SectionTitle title={t("pools.featuredPools")} styles={styles} t={t} />
         {isLoading ? (
           <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />
+        ) : isError ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{errorMessage(error, "Couldn't load pools.")}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => refetch()}>
+              <Text style={styles.retryText}>{t("common.retry")}</Text>
+            </TouchableOpacity>
+          </View>
         ) : filteredPools.length ? (
-          filteredPools.map((pool) => <NearbyCard key={pool.id} pool={pool} onSelect={() => { setSelectedPoolId(pool.id); router.replace("/home"); }} styles={styles} t={t} />)
+          filteredPools.map((pool) => (
+            <NearbyCard
+              key={pool.id}
+              pool={pool}
+              onSelect={() => { setSelectedPoolId(pool.id); router.replace("/home"); }}
+              onOpenDetail={() => router.push({ pathname: "/pool-detail", params: { poolId: pool.id } })}
+              styles={styles}
+              t={t}
+            />
+          ))
         ) : (
           <Text style={styles.empty}>{t("pools.noPoolsMatch")}</Text>
         )}
@@ -73,7 +81,7 @@ type TFunction = (key: string, vars?: Record<string, string | number>) => string
 
 function SectionTitle({ title, styles, t }: { title: string; styles: ReturnType<typeof createStyles>; t: TFunction }) { return <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>{title}</Text><TouchableOpacity><Text style={styles.seeAll}>{t("common.seeAll")}</Text></TouchableOpacity></View>; }
 function PoolMeta({ pool, styles, t }: { pool: Pool; styles: ReturnType<typeof createStyles>; t: TFunction }) { return <Text style={styles.meta}>{pool.location}  ·  {pool.covered ? t("pools.indoor") : t("pools.outdoor")}{pool.kidsPool ? `  ·  ${t("pools.kidsPool")}` : ""}  ·  {pool.size}</Text>; }
-function NearbyCard({ pool, onSelect, styles, t }: { pool: Pool; onSelect: () => void; styles: ReturnType<typeof createStyles>; t: TFunction }) { return <TouchableOpacity style={styles.nearbyCard} activeOpacity={0.85} onPress={onSelect}><Image source={pool.imageUrl ? { uri: pool.imageUrl } : getPoolImage(pool.imageKey)} style={styles.nearbyImage} /><View style={styles.nearbyCopy}><Text style={styles.nearbyName} numberOfLines={1}>{pool.name}</Text><PoolMeta pool={pool} styles={styles} t={t} /></View><TouchableOpacity style={styles.bookButton} onPress={onSelect}><Text style={styles.bookText}>{t("pools.book")}</Text></TouchableOpacity></TouchableOpacity>; }
+function NearbyCard({ pool, onSelect, onOpenDetail, styles, t }: { pool: Pool; onSelect: () => void; onOpenDetail: () => void; styles: ReturnType<typeof createStyles>; t: TFunction }) { return <TouchableOpacity style={styles.nearbyCard} activeOpacity={0.85} onPress={onOpenDetail}><Image source={pool.imageUrl ? { uri: pool.imageUrl } : getPoolImage(pool.imageKey)} style={styles.nearbyImage} /><View style={styles.nearbyCopy}><Text style={styles.nearbyName} numberOfLines={1}>{pool.name}</Text><PoolMeta pool={pool} styles={styles} t={t} /></View><TouchableOpacity style={styles.bookButton} onPress={onSelect}><Text style={styles.bookText}>{t("pools.book")}</Text></TouchableOpacity></TouchableOpacity>; }
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
@@ -82,6 +90,7 @@ function createStyles(colors: ThemeColors) {
   filterRow: { gap: 10, paddingTop: 13, paddingBottom: 24 }, filter: { paddingHorizontal: 16, height: 37, borderRadius: 19, backgroundColor: colors.surfaceAlt, justifyContent: "center" }, filterActive: { backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primary }, filterText: { color: colors.textMuted, fontSize: 14, fontWeight: "600" }, filterTextActive: { color: colors.primary },
   sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 13 }, sectionTitle: { fontSize: 21, fontWeight: "700", color: colors.text }, seeAll: { fontSize: 15, color: colors.primary, fontWeight: "700" }, meta: { color: colors.textMuted, fontSize: 13, marginTop: 6 },
   nearbyCard: { minHeight: 123, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 11, flexDirection: "row", alignItems: "center", marginBottom: 12, backgroundColor: colors.surface, shadowColor: colors.border, shadowOpacity: 0.08, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 }, nearbyImage: { width: 91, height: 99, borderRadius: 12 }, nearbyCopy: { flex: 1, alignSelf: "stretch", paddingLeft: 12, paddingTop: 6 }, nearbyName: { color: colors.text, fontSize: 16, fontWeight: "700" }, bookButton: { backgroundColor: colors.primary, height: 42, borderRadius: 12, paddingHorizontal: 15, justifyContent: "center", alignItems: "center", alignSelf: "flex-end", marginBottom: 5 }, bookText: { color: "#fff", fontSize: 14, fontWeight: "700" }, empty: { color: colors.textMuted, fontSize: 15, textAlign: "center", marginTop: 20 },
+  errorBox: { alignItems: "center", gap: 12, marginTop: 20, paddingVertical: 20 }, errorText: { color: colors.danger, fontSize: 14, textAlign: "center" }, retryButton: { paddingHorizontal: 18, height: 40, borderRadius: 10, backgroundColor: colors.primarySoft, justifyContent: "center", alignItems: "center" }, retryText: { color: colors.primary, fontWeight: "700", fontSize: 14 },
   bottomNav: { height: 92, borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.background, flexDirection: "row", justifyContent: "space-around", paddingTop: 12 }, navItem: { width: 78, alignItems: "center", gap: 4 }, navText: { fontSize: 13, color: colors.icon, fontWeight: "600" }, navTextActive: { color: colors.primary, fontWeight: "700" },
   });
 }

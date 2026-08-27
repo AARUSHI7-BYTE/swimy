@@ -10,12 +10,12 @@ import {
 } from "react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { confirmPhoneVerification, sendPhoneVerification } from "../../firebaseconfig";
-import { useAppContext } from "../app-context";
+import { confirmPhoneVerification, sendPhoneVerification, signOutUser } from "../../firebaseconfig";
+import { useAppContext } from "../../context/app-context";
 import { getStoredProfile } from "../../lib/profile-storage";
-import { ensureUserDocument } from "../../lib/firestore";
-import { useLanguage } from "../language-context";
-import { useTheme } from "../theme-context";
+import { useEnsureUserDocumentMutation } from "../../lib/queries";
+import { useLanguage } from "../../context/language-context";
+import { useTheme } from "../../context/theme-context";
 import { ThemeColors } from "../../lib/theme";
 
 const OTP_LENGTH = 6;
@@ -26,7 +26,6 @@ export default function Otp() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { phone, mode } = useLocalSearchParams<{ phone?: string; mode?: string }>();
   const phoneNumber = phone ?? "";
-  const isLoginMode = mode === "login";
   const isAdminMode = mode === "admin";
   const {
     setPhoneNumber,
@@ -44,12 +43,13 @@ export default function Otp() {
   const [errorMessage, setErrorMessage] = useState("");
   const [infoMessage, setInfoMessage] = useState("");
   const inputs = useRef<(TextInput | null)[]>([]);
+  const ensureUserDocumentMutation = useEnsureUserDocumentMutation();
 
   useEffect(() => {
     if (!phoneNumber) {
-      router.replace(isAdminMode ? "/admin-login" : isLoginMode ? "/signin" : "/login");
+      router.replace(isAdminMode ? "/admin-login" : "/signin");
     }
-  }, [phoneNumber, isLoginMode, isAdminMode]);
+  }, [phoneNumber, isAdminMode]);
 
   const updateCode = (value: string, index: number) => {
     const digits = value.replace(/\D/g, "");
@@ -98,7 +98,7 @@ export default function Otp() {
 
     try {
       const uid = result.user.uid;
-      const userDoc = await ensureUserDocument(uid, `+91${phoneNumber}`);
+      const userDoc = await ensureUserDocumentMutation.mutateAsync({ uid, phoneNumber: `+91${phoneNumber}` });
       setUid(uid);
       setRole(userDoc.role);
       setPoolIds(userDoc.poolIds);
@@ -113,13 +113,24 @@ export default function Otp() {
         return;
       }
 
-      if (isLoginMode) {
-        const storedProfile = await getStoredProfile(phoneNumber);
-        if (!storedProfile) {
-          setErrorMessage(t("otp.errorNoAccount"));
-          return;
-        }
-        setPhoneNumber(phoneNumber);
+      // An account is either a regular member or admin/facility staff, never
+      // both - staff numbers must use Admin/Staff Login, not the consumer flow.
+      // Sign out and clear the elevated role/poolIds we just set above so no
+      // staff-level state lingers in the app for a session we're rejecting.
+      if (userDoc.role === "admin" || userDoc.role === "facility") {
+        await signOutUser();
+        setUid("");
+        setRole("user");
+        setPoolIds([]);
+        setErrorMessage(t("otp.errorStaffAccount"));
+        return;
+      }
+
+      // Existing users (a profile was already completed on this device) go
+      // straight back in; new numbers are routed into onboarding.
+      const storedProfile = await getStoredProfile(phoneNumber);
+      setPhoneNumber(phoneNumber);
+      if (storedProfile) {
         setUserName(storedProfile.userName);
         setProfilePhotoUri(storedProfile.profilePhotoUri);
         setLocationLabel(storedProfile.locationLabel);
@@ -128,7 +139,6 @@ export default function Otp() {
         return;
       }
 
-      setPhoneNumber(phoneNumber);
       router.replace("/profile");
     } catch (error) {
       console.error("Failed to load user profile after OTP verification", error);

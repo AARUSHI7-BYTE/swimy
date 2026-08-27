@@ -4,9 +4,10 @@ import { ActivityIndicator, Image, Platform, StyleSheet, Text, TextInput, Toucha
 import { router } from "expo-router";
 import { sendPhoneVerification } from "../firebaseconfig";
 import { safeGoBack } from "../lib/navigation";
-import { useLanguage } from "./language-context";
-import { useTheme } from "./theme-context";
+import { useLanguage } from "../context/language-context";
+import { useTheme } from "../context/theme-context";
 import { ThemeColors } from "../lib/theme";
+import TermsModal from "./terms-modal";
 
 export default function SignIn() {
   const { colors } = useTheme();
@@ -14,6 +15,7 @@ export default function SignIn() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [phoneNumber, setPhoneNumber] = useState("");
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -82,13 +84,16 @@ export default function SignIn() {
           <Text style={styles.adminLinkText}>{t("auth.adminLink")}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.termsRow} onPress={() => setAgreedToTerms(!agreedToTerms)} activeOpacity={0.8}>
-          <Ionicons name={agreedToTerms ? "checkbox" : "square-outline"} size={22} color={agreedToTerms ? colors.primary : colors.textFaint} />
+        <View style={styles.termsRow}>
+          <TouchableOpacity hitSlop={8} onPress={() => setAgreedToTerms(!agreedToTerms)}>
+            <Ionicons name={agreedToTerms ? "checkbox" : "square-outline"} size={22} color={agreedToTerms ? colors.primary : colors.textFaint} />
+          </TouchableOpacity>
           <Text style={styles.termsText}>
-            {t("auth.footerPrefix")}<Text style={styles.link}>{t("auth.terms")}</Text>{t("auth.and")}
-            <Text style={styles.link}>{t("auth.privacy")}</Text>
+            {t("auth.footerPrefix")}
+            <Text style={styles.link} onPress={() => setShowTerms(true)}>{t("auth.terms")}</Text>
+            {t("auth.footerSuffix")}
           </Text>
-        </TouchableOpacity>
+        </View>
 
         {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
@@ -100,6 +105,15 @@ export default function SignIn() {
           {isSending ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{t("common.continue")}</Text>}
         </TouchableOpacity>
       </View>
+
+      <TermsModal
+        visible={showTerms}
+        onClose={() => setShowTerms(false)}
+        onAccept={() => {
+          setAgreedToTerms(true);
+          setShowTerms(false);
+        }}
+      />
     </View>
   );
 }

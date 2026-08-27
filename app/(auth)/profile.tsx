@@ -4,10 +4,12 @@ import * as ImagePicker from "expo-image-picker";
 import { useMemo, useState } from "react";
 import { ActionSheetIOS, Alert, Image, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { router } from "expo-router";
-import { useAppContext } from "../app-context";
-import { useLanguage } from "../language-context";
-import { useTheme } from "../theme-context";
+import { useAppContext } from "../../context/app-context";
+import { useLanguage } from "../../context/language-context";
+import { useTheme } from "../../context/theme-context";
 import { ThemeColors } from "../../lib/theme";
+import { uploadUserPhoto } from "../../lib/storage";
+import { useUpdateUserPhotoMutation } from "../../lib/queries";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MIN_AGE = 5;
@@ -49,7 +51,7 @@ export default function Profile() {
     { value: "male", label: t("common.male") },
     { value: "other", label: t("common.other") },
   ];
-  const { userName, setUserName, profilePhotoUri, setProfilePhotoUri } = useAppContext();
+  const { uid, userName, setUserName, profilePhotoUri, setProfilePhotoUri, setGender: setContextGender, setDateOfBirth } = useAppContext();
   const [fullName, setFullName] = useState(userName);
   const [dob, setDob] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -61,6 +63,7 @@ export default function Profile() {
   const [dobErrorText, setDobErrorText] = useState("");
   const [photoError, setPhotoError] = useState("");
   const [showOtherGenderError, setShowOtherGenderError] = useState(false);
+  const updateUserPhotoMutation = useUpdateUserPhotoMutation();
 
   function handleDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
     if (Platform.OS === "android") {
@@ -79,6 +82,18 @@ export default function Profile() {
     }
   }
 
+  // Local URI shows instantly in this app; the upload happens in the
+  // background so facility staff can see the same photo on their scan
+  // pop-up. Best-effort - a failed upload just means the QR-scan pop-up
+  // falls back to initials, not a blocking error for the swimmer.
+  function applyPhoto(uri: string) {
+    setProfilePhotoUri(uri);
+    if (!uid) return;
+    uploadUserPhoto(uid, uri)
+      .then((photoUrl) => updateUserPhotoMutation.mutateAsync({ uid, photoUrl }))
+      .catch((error) => console.error("Failed to upload profile photo", error));
+  }
+
   async function takePhoto() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
@@ -92,7 +107,7 @@ export default function Profile() {
       aspect: [1, 1],
       quality: 0.8,
     });
-    if (!result.canceled) setProfilePhotoUri(result.assets[0].uri);
+    if (!result.canceled) applyPhoto(result.assets[0].uri);
   }
 
   async function pickFromGallery() {
@@ -108,7 +123,7 @@ export default function Profile() {
       aspect: [1, 1],
       quality: 0.8,
     });
-    if (!result.canceled) setProfilePhotoUri(result.assets[0].uri);
+    if (!result.canceled) applyPhoto(result.assets[0].uri);
   }
 
   function choosePhoto() {
@@ -144,6 +159,9 @@ export default function Profile() {
       return;
     }
     setUserName(fullName.trim());
+    const genderLabel = gender === "other" ? otherGenderText.trim() : genderOptions.find((option) => option.value === gender)?.label ?? "";
+    setContextGender(genderLabel);
+    if (dob) setDateOfBirth(`${String(dob.getDate()).padStart(2, "0")}/${String(dob.getMonth() + 1).padStart(2, "0")}/${dob.getFullYear()}`);
     router.push({ pathname: "/location", params: { isSignup: "1" } });
   }
 

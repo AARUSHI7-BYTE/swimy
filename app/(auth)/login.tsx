@@ -11,8 +11,8 @@ Platform
 import { useMemo, useState } from "react";
 import { router } from "expo-router";
 import { sendPhoneVerification } from "../../firebaseconfig";
-import { useLanguage } from "../language-context";
-import { useTheme } from "../theme-context";
+import { useLanguage } from "../../context/language-context";
+import { useTheme } from "../../context/theme-context";
 import { ThemeColors } from "../../lib/theme";
 
 export default function Login(){

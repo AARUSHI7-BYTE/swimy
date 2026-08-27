@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   StyleSheet,
@@ -6,12 +6,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Location from "expo-location";
-import { useAppContext } from "./app-context";
-import { useLanguage } from "./language-context";
-import { useTheme } from "./theme-context";
+import { useAppContext } from "../context/app-context";
+import { useLanguage } from "../context/language-context";
+import { useTheme } from "../context/theme-context";
 import { ThemeColors } from "../lib/theme";
 import { saveStoredProfile } from "../lib/profile-storage";
 import { safeGoBack } from "../lib/navigation";
@@ -66,6 +67,15 @@ export default function EnableLocation() {
 
   const isResolved = status === "success";
 
+  useEffect(() => {
+    if (status !== "success") return;
+    const timer = setTimeout(() => {
+      continueToPools();
+    }, 700);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
   function continueToPools() {
     setLocationLabel(place);
     saveCoordinates(coordinates);
@@ -89,7 +99,7 @@ export default function EnableLocation() {
         : t("location.descDefault");
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["bottom"]}>
       <TouchableOpacity style={styles.backButton} onPress={safeGoBack}>
         <Ionicons name="chevron-back" size={24} color={colors.text} />
       </TouchableOpacity>
@@ -113,29 +123,30 @@ export default function EnableLocation() {
           <View style={styles.locationText}>
             <Text style={styles.locationLabel}>{t("location.currentLocationLabel")}</Text>
             <Text style={styles.locationName}>{place}</Text>
-            <Text style={styles.coordinates}>{coordinates}</Text>
           </View>
         </View>
       )}
 
-      <TouchableOpacity
-        style={[styles.button, status === "loading" && styles.buttonDisabled]}
-        onPress={isResolved ? continueToPools : enableLocation}
-        disabled={status === "loading"}
-      >
-        {status === "loading" ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>{isResolved ? t("common.continue") : t("location.enableButton")}</Text>
-        )}
-      </TouchableOpacity>
+      {!isResolved && (
+        <TouchableOpacity
+          style={[styles.button, status === "loading" && styles.buttonDisabled]}
+          onPress={enableLocation}
+          disabled={status === "loading"}
+        >
+          {status === "loading" ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.buttonText}>{t("location.enableButton")}</Text>
+          )}
+        </TouchableOpacity>
+      )}
 
       {!isResolved && (
-        <TouchableOpacity onPress={skipLocation} disabled={status === "loading"}>
+        <TouchableOpacity style={styles.skipTouchable} onPress={skipLocation} disabled={status === "loading"}>
           <Text style={styles.skip}>{t("common.notNow")}</Text>
         </TouchableOpacity>
       )}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -178,10 +189,10 @@ function createStyles(colors: ThemeColors) {
     locationText: { marginLeft: 12, flex: 1 },
     locationLabel: { color: colors.textMuted, fontWeight: "700", fontSize: 11, letterSpacing: 0.7 },
     locationName: { color: colors.text, fontWeight: "700", fontSize: 16, marginTop: 3 },
-    coordinates: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-    button: { height: 60, backgroundColor: colors.primary, justifyContent: "center", alignItems: "center", borderRadius: 12, marginTop: "auto", marginBottom: 17 },
+    button: { height: 60, backgroundColor: colors.primary, justifyContent: "center", alignItems: "center", borderRadius: 12, marginTop: "auto", marginBottom: 12 },
     buttonDisabled: { opacity: 0.7 },
     buttonText: { color: "#fff", fontSize: 18, fontWeight: "600" },
+    skipTouchable: { paddingVertical: 12, marginBottom: 8 },
     skip: { textAlign: "center", color: colors.textMuted, fontSize: 16 },
   });
 }

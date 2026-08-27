@@ -1,8 +1,10 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { AppProvider } from "./app-context";
-import { LanguageProvider } from "./language-context";
-import { ThemeProvider, useTheme } from "./theme-context";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { queryClient } from "../lib/query-client";
+import { LanguageProvider } from "../context/language-context";
+import { ThemeProvider, useTheme } from "../context/theme-context";
 
 function ThemedStack() {
   const { colors } = useTheme();
@@ -21,12 +23,14 @@ function ThemedStack() {
 
 export default function Layout() {
   return (
-    <ThemeProvider>
-      <LanguageProvider>
-        <AppProvider>
-          <ThemedStack />
-        </AppProvider>
-      </LanguageProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <LanguageProvider>
+            <ThemedStack />
+          </LanguageProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 }

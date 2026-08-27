@@ -9,8 +9,8 @@ import {
 
 import { router } from "expo-router";
 import { ThemeColors } from "../lib/theme";
-import { useLanguage } from "./language-context";
-import { useTheme } from "./theme-context";
+import { useLanguage } from "../context/language-context";
+import { useTheme } from "../context/theme-context";
 
 export default function Welcome() {
   const { colors } = useTheme();
@@ -27,10 +27,7 @@ export default function Welcome() {
       />
 
       <View style={styles.card}>
-        <View style={{
-          display: 'flex',
-          gap: 8
-        }}>
+        <View style={styles.copy}>
           <Text style={styles.heading}>
             {t("welcome.heading")}
           </Text>
@@ -40,31 +37,11 @@ export default function Welcome() {
           </Text>
         </View>
 
-        <View style={{
-          display: 'flex',
-          gap: 12
-        }}>
-
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => router.push("/login")}
-        >
-
+        <TouchableOpacity style={styles.button} activeOpacity={0.85} onPress={() => router.push("/signin")}>
           <Text style={styles.buttonText}>
-            {t("welcome.getStarted")}
-          </Text>
-
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.login} onPress={() => router.push("/signin")}>
-
-          <Text style={styles.loginText}>
             {t("welcome.login")}
           </Text>
-
         </TouchableOpacity>
-        </View>
-
       </View>
 
     </View>
@@ -83,59 +60,61 @@ function createStyles(colors: ThemeColors) {
 
     image: {
       width: "100%",
-      height: "55%"
+      height: "62%"
     },
 
     card: {
       flex: 1,
-      padding: 24,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      marginTop: -30,
-      backgroundColor: colors.background
+      paddingHorizontal: 28,
+      paddingTop: 40,
+      paddingBottom: 44,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      marginTop: -32,
+      backgroundColor: colors.background,
+      shadowColor: "#000",
+      shadowOpacity: 0.08,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: -6 },
+      elevation: 6
+    },
+
+    copy: {
+      gap: 8
     },
 
     heading: {
-      fontSize: 40,
+      fontSize: 36,
+      lineHeight: 42,
       fontWeight: "700",
-      color: colors.text,
-      fontStyle: 'normal',
+      color: colors.text
     },
 
     desc: {
-      fontSize: 20,
+      fontSize: 16,
+      lineHeight: 23,
       fontWeight: '500',
       color: colors.textMuted
     },
 
     button: {
-      marginTop: 40,
+      marginTop: 36,
       height: 58,
       backgroundColor: colors.primary,
       justifyContent: "center",
       alignItems: "center",
-      borderRadius: 12
+      borderRadius: 14,
+      shadowColor: colors.primary,
+      shadowOpacity: 0.25,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 5 },
+      elevation: 3
     },
 
     buttonText: {
       color: "#fff",
       fontSize: 18,
       fontWeight: "600"
-    },
-
-    login: {
-      height: 58,
-      borderWidth: 1,
-      borderColor: colors.border,
-      justifyContent: "center",
-      alignItems: "center",
-      borderRadius: 12
-    },
-
-    loginText: {
-      fontSize: 18,
-      fontWeight: "600",
-      color: colors.text
     }
 
   });

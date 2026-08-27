@@ -26,6 +26,17 @@ service cloud.firestore {
       return (isAdmin() || isFacility()) && poolId in currentUser().poolIds;
     }
 
+    // users/{uid}.phoneNumber is stored as "+91XXXXXXXXXX" while
+    // membership.phone is the raw 10-digit number. This must compare
+    // resource.data.phone *bare* (never wrapped in a concatenation/transform)
+    // so Firestore can statically prove the rule is satisfied by a
+    // where("phone", "==", ...) query - a transformed resource.data
+    // comparison makes the query unprovable and Firestore rejects the whole
+    // list request with permission-denied, independent of the actual data.
+    function requesterRawPhone() {
+      return currentUser().phoneNumber.split("\\+91")[1];
+    }
+
     // Each user manages only their own profile doc. Role and poolIds can only
     // be set to defaults on creation and never changed by the user themself -
     // admin/facility access must be granted manually (e.g. via Firebase console).
@@ -48,8 +59,20 @@ service cloud.firestore {
     // pool (bookings, entries, etc.).
     match /pools/{poolId} {
       allow read: if isSignedIn();
-      allow create, update: if isAdmin();
+      allow create: if isAdmin();
       allow delete: if isAdmin();
+      // Admins can change anything. Facility accounts assigned to this pool
+      // may only touch the self-service fields exposed in the Facility App's
+      // Settings tab (pricing, capacity, profile) - identity fields like
+      // name/location/active/poolIds stay admin-only.
+      allow update: if isAdmin()
+        || (isAssignedToPool(poolId)
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly([
+                   'pricingModel', 'baseCharge', 'perMinCharge', 'slotPrice', 'overagePerMin',
+                   'slabs', 'lateExitPerMin', 'maxOccupancy', 'liveOccupancy',
+                   'operatingHours', 'contactInfo', 'photos', 'primaryPhotoIndex'
+                 ]));
 
       match /{document=**} {
         allow read, write: if isAssignedToPool(poolId);
@@ -59,9 +82,13 @@ service cloud.firestore {
       // so activate/deactivate toggles made by facility staff are reflected
       // on the member-facing account screen.
       match /memberships/{membershipId} {
-        // users/{uid}.phoneNumber is stored as "+91XXXXXXXXXX" while
-        // membership.phone is the raw 10-digit number - compare accordingly.
-        allow read: if isSignedIn() && currentUser().phoneNumber == "+91" + resource.data.phone;
+        allow read: if isSignedIn() && resource.data.phone == requesterRawPhone();
+        // Members may pause/resume their own membership from the account
+        // screen - only the status field, everything else stays staff-only.
+        allow update: if isSignedIn()
+          && resource.data.phone == requesterRawPhone()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['active', 'inactive'];
       }
 
       // Consumers need to read their own entry docs (home.tsx subscribes to

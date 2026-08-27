@@ -48,7 +48,7 @@ export default function AdminLogin() {
           <Ionicons name="shield-checkmark-outline" size={34} color="#2457FF" />
         </View>
 
-        <Text style={styles.title}>Admin / Facility Login</Text>
+        <Text style={styles.title}>Admin / Staff Login</Text>
         <Text style={styles.subtitle}>Access your dashboard</Text>
 
         <Text style={styles.label}>Phone Number</Text>

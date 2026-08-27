@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Camera } from "expo-camera";
 import * as Notifications from "expo-notifications";
-import { useLanguage } from "./language-context";
-import { useTheme } from "./theme-context";
+import { useLanguage } from "../context/language-context";
+import { useTheme } from "../context/theme-context";
 import { ThemeColors } from "../lib/theme";
 import { safeGoBack } from "../lib/navigation";
 
@@ -28,12 +29,12 @@ export default function Permissions() {
     setNotificationStatus(permission.granted ? "granted" : "denied");
   }
 
-  function continueToPools() {
-    router.replace("/pools");
+  function continueToApp() {
+    router.replace("/home");
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["bottom"]}>
       <TouchableOpacity style={styles.backButton} onPress={safeGoBack}>
         <Ionicons name="chevron-back" size={24} color={colors.text} />
       </TouchableOpacity>
@@ -95,14 +96,14 @@ export default function Permissions() {
         )}
       </View>
 
-      <TouchableOpacity style={styles.button} onPress={continueToPools}>
+      <TouchableOpacity style={styles.button} onPress={continueToApp}>
         <Text style={styles.buttonText}>{t("common.continue")}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={continueToPools}>
+      <TouchableOpacity onPress={continueToApp}>
         <Text style={styles.skip}>{t("common.notNow")}</Text>
       </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 

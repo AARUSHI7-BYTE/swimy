@@ -1,7 +1,7 @@
 import { Image, StyleSheet, View, useWindowDimensions } from "react-native";
 import { router } from "expo-router";
 import { useEffect, useMemo } from "react";
-import { useTheme } from "./theme-context";
+import { useTheme } from "../context/theme-context";
 import { ThemeColors } from "../lib/theme";
 
 const steps = [

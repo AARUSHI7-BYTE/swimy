@@ -18,6 +18,22 @@ export async function uploadMemberPhoto(poolId: string, phone: string, index: nu
   return getDownloadURL(photoRef);
 }
 
+// Uploads one photo for the facility-editable pool profile gallery, to
+// pools/{poolId}/profile/{index}-{timestamp}.jpg.
+export async function uploadPoolPhoto(poolId: string, index: number, localUri: string): Promise<string> {
+  const photoRef = ref(storage, `pools/${poolId}/profile/${index}-${Date.now()}.jpg`);
+  await putFile(photoRef, localUri);
+  return getDownloadURL(photoRef);
+}
+
+// Uploads a swimmer's profile photo to users/{uid}/photo.jpg and returns its
+// public download URL, so facility staff can see it on the entry scan pop-up.
+export async function uploadUserPhoto(uid: string, localUri: string): Promise<string> {
+  const photoRef = ref(storage, `users/${uid}/photo.jpg`);
+  await putFile(photoRef, localUri);
+  return getDownloadURL(photoRef);
+}
+
 // Best-effort cleanup of a pool's cover image when the pool itself is deleted.
 // Ignored if no image was ever uploaded for this pool.
 export async function deletePoolImage(poolId: string): Promise<void> {

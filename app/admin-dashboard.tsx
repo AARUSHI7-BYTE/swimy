@@ -8,7 +8,6 @@ import {
   Image,
   Modal,
   Platform,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,9 +15,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { useAppContext } from "./app-context";
-import { addPool, deletePool, getAllPools, Pool, updatePoolImageUrl } from "../lib/firestore";
+import { useAppContext } from "../context/app-context";
+import { Pool } from "../lib/firestore";
+import { errorMessage } from "../lib/query-client";
+import { useAddPoolMutation, useDeletePoolMutation, usePoolsQuery, useUpdatePoolImageMutation } from "../lib/queries";
 import { deletePoolImage, uploadPoolImage } from "../lib/storage";
 import { getPoolImage } from "../lib/pool-images";
 import { signOutUser } from "../firebaseconfig";
@@ -27,23 +29,16 @@ const sizeOptions = ["Small", "Medium", "Large"];
 
 export default function AdminDashboard() {
   const { role, phoneNumber, resetSession } = useAppContext();
-  const [pools, setPools] = useState<Pool[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: pools = [], isLoading, isError, error, refetch } = usePoolsQuery();
+  const addPoolMutation = useAddPoolMutation();
+  const deletePoolMutation = useDeletePoolMutation();
+  const updatePoolImageMutation = useUpdatePoolImageMutation();
   const [isFormVisible, setIsFormVisible] = useState(false);
-
-  const loadPools = () => {
-    setIsLoading(true);
-    getAllPools()
-      .then(setPools)
-      .finally(() => setIsLoading(false));
-  };
 
   useEffect(() => {
     if (role !== "admin") {
       router.replace("/admin-login");
-      return;
     }
-    loadPools();
   }, [role]);
 
   function confirmLogout() {
@@ -72,11 +67,10 @@ export default function AdminDashboard() {
 
   async function handleDeletePool(pool: Pool) {
     try {
-      await deletePool(pool.id);
+      await deletePoolMutation.mutateAsync(pool.id);
       deletePoolImage(pool.id).catch(() => {});
-      loadPools();
     } catch (error) {
-      Alert.alert("Couldn't delete pool", error instanceof Error ? error.message : "Please try again.");
+      Alert.alert("Couldn't delete pool", errorMessage(error, "Please try again."));
     }
   }
 
@@ -121,6 +115,15 @@ export default function AdminDashboard() {
 
         {isLoading ? (
           <ActivityIndicator color="#2850e8" style={{ marginTop: 30 }} />
+        ) : isError ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="alert-circle-outline" size={40} color="#df4545" />
+            <Text style={styles.emptyTitle}>Couldn't load pools</Text>
+            <Text style={styles.emptyText}>{errorMessage(error)}</Text>
+            <TouchableOpacity style={styles.addButton} onPress={() => refetch()}>
+              <Text style={styles.addButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         ) : pools.length ? (
           pools.map((pool) => <PoolCard key={pool.id} pool={pool} onDelete={() => confirmDeletePool(pool)} />)
         ) : (
@@ -135,10 +138,9 @@ export default function AdminDashboard() {
       <AddPoolModal
         visible={isFormVisible}
         onClose={() => setIsFormVisible(false)}
-        onSaved={() => {
-          setIsFormVisible(false);
-          loadPools();
-        }}
+        onSaved={() => setIsFormVisible(false)}
+        addPoolMutation={addPoolMutation}
+        updatePoolImageMutation={updatePoolImageMutation}
       />
     </SafeAreaView>
   );
@@ -179,7 +181,19 @@ function PoolCard({ pool, onDelete }: { pool: Pool; onDelete: () => void }) {
   );
 }
 
-function AddPoolModal({ visible, onClose, onSaved }: { visible: boolean; onClose: () => void; onSaved: () => void }) {
+function AddPoolModal({
+  visible,
+  onClose,
+  onSaved,
+  addPoolMutation,
+  updatePoolImageMutation,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  addPoolMutation: ReturnType<typeof useAddPoolMutation>;
+  updatePoolImageMutation: ReturnType<typeof useUpdatePoolImageMutation>;
+}) {
   const [name, setName] = useState("");
   const [location, setLocation] = useState("");
   const [price, setPrice] = useState("");
@@ -187,7 +201,7 @@ function AddPoolModal({ visible, onClose, onSaved }: { visible: boolean; onClose
   const [kidsPool, setKidsPool] = useState(false);
   const [size, setSize] = useState("Medium");
   const [imageUri, setImageUri] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   function resetForm() {
@@ -198,13 +212,13 @@ function AddPoolModal({ visible, onClose, onSaved }: { visible: boolean; onClose
     setKidsPool(false);
     setSize("Medium");
     setImageUri(null);
-    setErrorMessage("");
+    setFormError("");
   }
 
   async function takePhoto() {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      setErrorMessage("Please allow camera access to take a pool photo.");
+      setFormError("Please allow camera access to take a pool photo.");
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [4, 3], quality: 0.8 });
@@ -214,7 +228,7 @@ function AddPoolModal({ visible, onClose, onSaved }: { visible: boolean; onClose
   async function pickFromGallery() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      setErrorMessage("Please allow photo access to add a pool photo.");
+      setFormError("Please allow photo access to add a pool photo.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [4, 3], quality: 0.8 });
@@ -241,18 +255,18 @@ function AddPoolModal({ visible, onClose, onSaved }: { visible: boolean; onClose
 
   async function handleSave() {
     if (!name.trim() || !location.trim()) {
-      setErrorMessage("Pool name and location are required.");
+      setFormError("Pool name and location are required.");
       return;
     }
     const pricePerVisit = Number(price);
     if (!price.trim() || !Number.isFinite(pricePerVisit) || pricePerVisit <= 0) {
-      setErrorMessage("Enter a valid price per visit.");
+      setFormError("Enter a valid price per visit.");
       return;
     }
-    setErrorMessage("");
+    setFormError("");
     setIsSaving(true);
     try {
-      const poolId = await addPool({
+      const poolId = await addPoolMutation.mutateAsync({
         name: name.trim(),
         location: location.trim(),
         covered,
@@ -263,13 +277,12 @@ function AddPoolModal({ visible, onClose, onSaved }: { visible: boolean; onClose
       });
       if (imageUri) {
         const imageUrl = await uploadPoolImage(poolId, imageUri);
-        await updatePoolImageUrl(poolId, imageUrl);
+        await updatePoolImageMutation.mutateAsync({ poolId, imageUrl });
       }
       resetForm();
       onSaved();
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      setErrorMessage(`Couldn't save this pool: ${detail}`);
+      setFormError(`Couldn't save this pool: ${errorMessage(error)}`);
     } finally {
       setIsSaving(false);
     }
@@ -338,7 +351,7 @@ function AddPoolModal({ visible, onClose, onSaved }: { visible: boolean; onClose
               </TouchableOpacity>
             </View>
 
-            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+            {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
 
             <TouchableOpacity style={[styles.saveButton, isSaving && styles.buttonDisabled]} onPress={handleSave} disabled={isSaving}>
               {isSaving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Save Pool</Text>}
