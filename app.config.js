@@ -1,0 +1,106 @@
+const variant = process.env.APP_VARIANT || "development";
+
+const IS_PROD = variant === "production";
+
+const config = {
+  expo: {
+    name: "Swimy",
+    slug: "Swimy",
+    version: "0.0.1",
+    orientation: "portrait",
+    icon: "./assets/images/icon.png",
+    scheme: "swimy",
+    userInterfaceStyle: "automatic",
+    newArchEnabled: true,
+    ios: {
+      supportsTablet: true,
+      bundleIdentifier: IS_PROD
+        ? "com.aromapools.swimy"
+        : "com.aromapools.swimy.dev",
+      googleServicesFile: "./GoogleService-Info.plist",
+    },
+    android: {
+      adaptiveIcon: {
+        backgroundColor: "#E6F4FE",
+        foregroundImage: "./assets/images/android-icon-foreground.png",
+        backgroundImage: "./assets/images/android-icon-background.png",
+        monochromeImage: "./assets/images/android-icon-monochrome.png",
+      },
+      googleServicesFile: "./google-services.json",
+      edgeToEdgeEnabled: true,
+      predictiveBackGestureEnabled: false,
+      package: IS_PROD ? "com.aromapools.swimy" : "com.aromapools.swimy.dev",
+    },
+    web: {
+      output: "static",
+      favicon: "./assets/images/favicon.png",
+    },
+    plugins: [
+      [
+        "expo-build-properties",
+        {
+          ios: {
+            useFrameworks: "static",
+          },
+        },
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "expo-router",
+      [
+        "expo-location",
+        {
+          locationWhenInUsePermission:
+            "Allow Swimy to use your location to find pools near you.",
+        },
+      ],
+      [
+        "expo-image-picker",
+        {
+          photosPermission:
+            "Allow Swimy to access your photos so you can add a profile picture.",
+          microphonePermission: false,
+        },
+      ],
+      [
+        "expo-camera",
+        {
+          cameraPermission:
+            "Allow Swimy to use your camera to scan pool entry QR codes.",
+        },
+      ],
+      [
+        "expo-notifications",
+        {
+          icon: "./assets/images/icon.png",
+          color: "#ffffff",
+        },
+      ],
+      [
+        "expo-splash-screen",
+        {
+          image: "./assets/images/splash-blank.png",
+          imageWidth: 1,
+          resizeMode: "contain",
+          backgroundColor: "#ffffff",
+          dark: {
+            backgroundColor: "#000000",
+          },
+        },
+      ],
+      "@react-native-community/datetimepicker",
+    ],
+    experiments: {
+      typedRoutes: true,
+      reactCompiler: true,
+    },
+    extra: {
+      router: {},
+      eas: {
+        projectId: "fa794287-7455-45ac-bc5c-c86ee424ef34",
+      },
+    },
+  },
+};
+
+export default config;
