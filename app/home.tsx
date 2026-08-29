@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
-import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import QRCode from "react-native-qrcode-svg";
@@ -9,6 +9,7 @@ import { useLanguage } from "../context/language-context";
 import { useTheme } from "../context/theme-context";
 import { ThemeColors } from "../lib/theme";
 import { Pool } from "../lib/firestore";
+import { Entry } from "../lib/entries";
 import { ageFromDateOfBirth } from "../lib/age";
 import { computeDue, extractPricingConfig, PricingConfig } from "../lib/pricing";
 import { activeRulesAt, segmentLabel } from "../lib/restrictedTimings";
@@ -18,13 +19,48 @@ function formatTime(ms: number) {
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function formatVisitDate(ms: number) {
-  return new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-}
-
 function formatDuration(startMs: number, endMs: number) {
   const minutes = Math.max(0, Math.round((endMs - startMs) / 60000));
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function dateKey(ms: number) {
+  return new Date(ms).toDateString();
+}
+
+function formatDayHeader(ms: number) {
+  const d = new Date(ms);
+  const weekday = d.toLocaleDateString("en-US", { weekday: "short" });
+  const month = d.toLocaleDateString("en-US", { month: "short" });
+  return `${weekday.toUpperCase()}, ${d.getDate()} ${month.toUpperCase()}`;
+}
+
+function dateBadgeParts(ms: number) {
+  const d = new Date(ms);
+  return {
+    month: d.toLocaleDateString("en-US", { month: "short" }).toUpperCase(),
+    day: d.getDate(),
+    weekday: d.toLocaleDateString("en-US", { weekday: "short" }),
+  };
+}
+
+type VisitGroup = { key: string; label: string; visits: Entry[]; total: number };
+
+function groupVisitsByDay(visits: Entry[]): VisitGroup[] {
+  const groups: VisitGroup[] = [];
+  const byKey = new Map<string, VisitGroup>();
+  for (const visit of visits) {
+    const key = dateKey(visit.enteredAt);
+    let group = byKey.get(key);
+    if (!group) {
+      group = { key, label: formatDayHeader(visit.enteredAt), visits: [], total: 0 };
+      byKey.set(key, group);
+      groups.push(group);
+    }
+    group.visits.push(visit);
+    if (visit.exitedAt && visit.price != null) group.total += visit.price;
+  }
+  return groups;
 }
 
 function EntryQrCode({ value, colors, styles }: { value: string; colors: ThemeColors; styles: ReturnType<typeof createStyles> }) {
@@ -79,9 +115,6 @@ function PricingCard({ pool, colors, styles, t }: { pool: Pool; colors: ThemeCol
           <Text style={styles.pricingCaption}>{t("home.pricingOverageCaption")}</Text>
         </View>
       </View>
-      <View style={styles.pricingFooter}>
-        <Text style={styles.pricingFooterText}>{t("home.pricingNoteB")}</Text>
-      </View>
     </View>
   );
 }
@@ -111,7 +144,8 @@ export default function Home() {
   });
   const { data: recentVisitsAll = [] } = useEntriesByUserQuery(selectedPool?.id, uid);
   const recentVisits = useMemo(() => recentVisitsAll.slice(0, 3), [recentVisitsAll]);
-  const { data: restrictedRules = [] } = useRestrictedRulesQuery(selectedPool?.id);
+  const recentVisitGroups = useMemo(() => groupVisitsByDay(recentVisits), [recentVisits]);
+  const { data: restrictedRules = [], refetch: refetchRestrictedRules } = useRestrictedRulesQuery(selectedPool?.id);
   const { data: memberships = [] } = useMembershipsByPhoneQuery(selectedPool?.id, phoneNumber);
   const exitedMembership = latestEntry?.membershipId ? memberships.find((membership) => membership.id === latestEntry.membershipId) ?? null : null;
   const fullName = userName.trim() || t("home.guest");
@@ -119,6 +153,16 @@ export default function Home() {
   const totalPeople = (selfIncluded ? 1 : 0) + selectedMemberIds.length;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? t("home.greetingMorning") : hour < 17 ? t("home.greetingAfternoon") : t("home.greetingEvening");
+
+  const [refreshing, setRefreshing] = useState(false);
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetchPool(), refetchRestrictedRules()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   function toggleMember(member: Member) {
     setSelectedMemberIds((selected) => selected.includes(member.id) ? selected.filter((id) => id !== member.id) : [...selected, member.id]);
@@ -158,7 +202,12 @@ export default function Home() {
 
   return (
     <SafeAreaView style={styles.screen}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} colors={[colors.primary]} />}
+      >
         <View style={styles.topBar}>
           <TouchableOpacity style={styles.locationSelector} activeOpacity={0.75} onPress={() => router.push("/location")}>
             <Ionicons name="location" size={19} color={colors.danger} />
@@ -194,7 +243,6 @@ export default function Home() {
                 </Text>
               )}
               <EntryQrCode value={entryToken} colors={colors} styles={styles} />
-              <View style={styles.scanStatus}><View style={styles.statusDot} /><Text style={styles.statusText}>{t("home.readyToScan")}</Text></View>
             </>
           ) : (
             <View style={styles.entryEmpty}>
@@ -230,20 +278,42 @@ export default function Home() {
           <View style={styles.visitsHeader}>
             <Text style={styles.visitsTitle}>{t("home.recentVisits")}</Text>
             {recentVisits.length > 0 && (
-              <TouchableOpacity onPress={() => router.push("/account")}><Text style={styles.seeAll}>{t("common.seeAll")}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => router.push("/visit-history")}><Text style={styles.seeAll}>{t("common.seeAll")}</Text></TouchableOpacity>
             )}
           </View>
-          {recentVisits.length > 0 ? (
-            recentVisits.map((visit) => (
-              <View key={visit.id} style={styles.visitRow}>
-                <View style={styles.visitIconCircle}>
-                  <Ionicons name={visit.exitedAt ? "checkmark-circle-outline" : "time-outline"} size={20} color={colors.primary} />
-                </View>
-                <View style={styles.visitCopy}>
-                  <Text style={styles.visitDate}>{formatVisitDate(visit.enteredAt)} · {formatTime(visit.enteredAt)}</Text>
-                  <Text style={styles.visitStatus}>{visit.exitedAt ? t("common.completed") : t("common.checkedIn")}</Text>
-                </View>
-                {visit.exitedAt && visit.price != null && <Text style={styles.visitPrice}>₹{visit.price}</Text>}
+          {recentVisitGroups.length > 0 ? (
+            recentVisitGroups.map((group) => (
+              <View key={group.key} style={styles.visitGroup}>
+                <Text style={styles.visitGroupLabel}>{group.label}</Text>
+                {group.visits.map((visit) => {
+                  const badge = dateBadgeParts(visit.enteredAt);
+                  const duration = visit.exitedAt ? formatDuration(visit.enteredAt, visit.exitedAt) : null;
+                  return (
+                    <View key={visit.id} style={styles.visitRow}>
+                      <View style={styles.dateBadge}>
+                        <Text style={styles.dateBadgeMonth}>{badge.month}</Text>
+                        <Text style={styles.dateBadgeDay}>{badge.day}</Text>
+                        <Text style={styles.dateBadgeWeekday}>{badge.weekday}</Text>
+                      </View>
+                      <View style={styles.visitCopy}>
+                        <Text style={styles.visitName}>{visit.people[0]?.name ?? fullName}</Text>
+                        <Text style={styles.visitTimeRange}>
+                          {formatTime(visit.enteredAt)}{visit.exitedAt ? ` - ${formatTime(visit.exitedAt)}` : ` · ${t("common.checkedIn")}`}
+                        </Text>
+                        {duration && duration !== "0 min" && <Text style={styles.visitDuration}>{duration}</Text>}
+                      </View>
+                      {visit.exitedAt && visit.price != null && (
+                        <View style={styles.visitPricePill}><Text style={styles.visitPricePillText}>₹{visit.price}</Text></View>
+                      )}
+                    </View>
+                  );
+                })}
+                {group.total > 0 && (
+                  <View style={styles.dayTotalPill}>
+                    <Text style={styles.dayTotalLabel}>{t("home.dayTotal")}</Text>
+                    <Text style={styles.dayTotalValue}>₹{group.total}</Text>
+                  </View>
+                )}
               </View>
             ))
           ) : (
@@ -392,14 +462,19 @@ function createStyles(colors: ThemeColors) {
   greeting: { color: colors.text, fontSize: 24, fontWeight: "700", marginTop: 29 }, userName: { color: colors.text, fontSize: 35, lineHeight: 42, fontWeight: "700", marginTop: 2 }, wave: { fontSize: 28 },
   entryCard: { marginTop: 21, minHeight: 374, borderRadius: 19, borderWidth: 1, borderColor: colors.border, shadowColor: colors.border, shadowOpacity: 0.12, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 3, alignItems: "center", paddingTop: 30 },
   entryLabel: { color: colors.primary, fontSize: 14, letterSpacing: 1.7, fontWeight: "800" }, entryPoolName: { color: colors.text, fontSize: 18, fontWeight: "700", marginTop: 10 }, restrictedNotice: { color: colors.danger, fontSize: 12.5, fontWeight: "600", marginTop: 6, textAlign: "center", paddingHorizontal: 16 }, qrFrame: { marginTop: 23, backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 16 },
-  scanStatus: { flexDirection: "row", alignItems: "center", marginTop: 24, gap: 8 }, statusDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.success }, statusText: { color: colors.success, fontSize: 16, fontWeight: "700" },
   entryEmpty: { alignItems: "center", marginTop: 50, paddingHorizontal: 20, gap: 6 }, entryEmptyTitle: { fontSize: 18, fontWeight: "700", color: colors.text, marginTop: 8 }, entryEmptyText: { color: colors.textMuted, fontSize: 14, textAlign: "center" }, choosePoolButton: { marginTop: 16, backgroundColor: colors.primary, height: 46, borderRadius: 12, paddingHorizontal: 22, justifyContent: "center", alignItems: "center" }, choosePoolText: { color: "#fff", fontSize: 15, fontWeight: "700" },
   membersCard: { marginTop: 25, borderRadius: 19, borderWidth: 1, borderColor: colors.border, shadowColor: colors.border, shadowOpacity: 0.1, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2, padding: 20 }, membersHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }, membersTitle: { color: colors.text, fontSize: 20, fontWeight: "700" }, membersSubtitle: { color: colors.textMuted, fontSize: 13, marginTop: 6 }, countPill: { backgroundColor: colors.primary, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 20 }, countText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   memberRow: { height: 64, marginTop: 17, flexDirection: "row", alignItems: "center", gap: 15, borderBottomWidth: 1, borderColor: colors.border }, memberName: { flex: 1, color: colors.text, fontSize: 18, fontWeight: "700" }, memberPill: { backgroundColor: colors.primarySoft, borderRadius: 15, paddingHorizontal: 12, paddingVertical: 5 }, memberPillText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
   addMember: { height: 52, flexDirection: "row", alignItems: "center", gap: 7 }, addMemberText: { color: colors.primary, fontSize: 17, fontWeight: "700" },
   membersLockedNote: { color: colors.textMuted, fontSize: 13, fontStyle: "italic", marginTop: 14 },
   visitsCard: { marginTop: 25, borderRadius: 19, borderWidth: 1, borderColor: colors.border, shadowColor: colors.border, shadowOpacity: 0.1, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2, padding: 20, minHeight: 247 }, visitsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, visitsTitle: { color: colors.text, fontSize: 20, fontWeight: "700" }, seeAll: { color: colors.primary, fontSize: 15, fontWeight: "700" }, clockCircle: { width: 82, height: 82, borderRadius: 41, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", alignSelf: "center", marginTop: 20 }, noVisits: { textAlign: "center", fontSize: 18, color: colors.text, fontWeight: "700", marginTop: 15 }, visitsDescription: { textAlign: "center", color: colors.textMuted, fontSize: 14, marginTop: 9 },
-  visitRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 16 }, visitIconCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" }, visitCopy: { flex: 1 }, visitDate: { color: colors.text, fontSize: 14.5, fontWeight: "700" }, visitStatus: { color: colors.textMuted, fontSize: 12.5, marginTop: 2 }, visitPrice: { color: colors.text, fontSize: 14, fontWeight: "700" },
+  visitGroup: { marginTop: 18 }, visitGroupLabel: { color: colors.textMuted, fontSize: 12, fontWeight: "700", letterSpacing: 0.6, marginBottom: 10 },
+  visitRow: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 14, padding: 12, marginBottom: 10 },
+  dateBadge: { width: 52, borderRadius: 10, backgroundColor: colors.primarySoft, alignItems: "center", paddingVertical: 6 }, dateBadgeMonth: { color: colors.primary, fontSize: 10, fontWeight: "700", letterSpacing: 0.5 }, dateBadgeDay: { color: colors.primary, fontSize: 20, fontWeight: "800", lineHeight: 24 }, dateBadgeWeekday: { color: colors.primary, fontSize: 10, fontWeight: "600" },
+  visitCopy: { flex: 1 }, visitName: { color: colors.text, fontSize: 15, fontWeight: "700" }, visitTimeRange: { color: colors.textMuted, fontSize: 12.5, marginTop: 3 }, visitDuration: { color: colors.textFaint, fontSize: 11.5, marginTop: 2 },
+  visitPricePill: { backgroundColor: colors.primarySoft, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 }, visitPricePillText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
+  dayTotalPill: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1.5, borderColor: colors.success, backgroundColor: colors.successSoft, borderRadius: 22, paddingHorizontal: 16, height: 44 },
+  dayTotalLabel: { color: colors.success, fontSize: 14, fontWeight: "700" }, dayTotalValue: { color: colors.success, fontSize: 15, fontWeight: "800" },
 
   pricingSection: { marginTop: 25 },
   pricingTitle: { color: colors.text, fontSize: 20, fontWeight: "700", marginBottom: 14 },
@@ -410,8 +485,6 @@ function createStyles(colors: ThemeColors) {
   pricingLabel: { color: colors.textMuted, fontSize: 11.5, fontWeight: "700", letterSpacing: 0.8 },
   pricingValue: { color: colors.primary, fontSize: 26, fontWeight: "800", marginTop: 8 },
   pricingCaption: { color: colors.textMuted, fontSize: 12.5, marginTop: 4 },
-  pricingFooter: { borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.surfaceAlt, paddingVertical: 12, paddingHorizontal: 16 },
-  pricingFooterText: { color: colors.textMuted, fontSize: 12.5, textAlign: "center" },
   pricingUnavailable: { color: colors.textMuted, fontSize: 14, textAlign: "center", paddingVertical: 24, paddingHorizontal: 16 },
   bottomNav: { height: 92, borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.background, flexDirection: "row", justifyContent: "space-around", paddingTop: 12, shadowColor: colors.background, elevation: 0 }, navItem: { width: 78, alignItems: "center", gap: 4 }, navText: { fontSize: 13, color: colors.icon, fontWeight: "600" }, navTextActive: { color: colors.primary, fontWeight: "700" },
 

@@ -1,6 +1,8 @@
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   NativeSyntheticEvent,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -167,7 +169,11 @@ export default function Otp() {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+    >
       <Stack.Screen options={{ headerBackVisible: !isVerifying }} />
 
       <View style={styles.iconCircle}>
@@ -211,7 +217,7 @@ export default function Otp() {
           {isResending ? t("otp.sending") : t("otp.resend")}
         </Text>
       </Text>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

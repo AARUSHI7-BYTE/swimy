@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
-import { Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { useMemo, useState } from "react";
 import { useAppContext } from "../context/app-context";
 import { useLanguage } from "../context/language-context";
@@ -82,6 +82,11 @@ export default function AddMember() {
   }
 
   return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+    >
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <TouchableOpacity style={styles.backButton} onPress={safeGoBack}><Ionicons name="chevron-back" size={24} color={colors.text} /></TouchableOpacity>
       <Text style={styles.title}>{t("member.title")}</Text>
@@ -137,6 +142,7 @@ export default function AddMember() {
 
       <TouchableOpacity style={styles.button} onPress={saveMember}><Text style={styles.buttonText}>{t("member.saveMember")}</Text></TouchableOpacity>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

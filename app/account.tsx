@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as Print from "expo-print";
 import { shareAsync } from "expo-sharing";
 import QRCode from "react-native-qrcode-svg";
@@ -146,6 +147,7 @@ export default function Account() {
   }
 
   const accountLinks = [
+    { icon: "time-outline" as const, label: t("home.recentVisits"), onPress: () => router.push("/visit-history") },
     { icon: "settings-outline" as const, label: t("account.settings"), onPress: () => router.push("/settings") },
     { icon: "log-out-outline" as const, label: t("account.logout"), onPress: confirmLogout, destructive: true },
   ];
@@ -154,7 +156,7 @@ export default function Account() {
   const loadError = membershipsQuery.error ?? poolQuery.error;
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {hasError && (
           <View style={styles.errorBanner}>
@@ -305,7 +307,7 @@ export default function Account() {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 

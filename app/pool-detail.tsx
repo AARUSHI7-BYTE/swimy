@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo } from "react";
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useAppContext } from "../context/app-context";
 import { useLanguage } from "../context/language-context";
 import { useTheme } from "../context/theme-context";
@@ -19,7 +19,17 @@ export default function PoolDetail() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { setSelectedPoolId } = useAppContext();
   const { data: pool, isLoading, isError, error, refetch } = usePoolQuery(poolId);
-  const { data: rules = [] } = useRestrictedRulesQuery(poolId);
+  const { data: rules = [], refetch: refetchRules } = useRestrictedRulesQuery(poolId);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([refetch(), refetchRules()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   function selectPool() {
     if (!pool) return;
@@ -32,7 +42,12 @@ export default function PoolDetail() {
 
   return (
     <View style={styles.screen}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} colors={[colors.primary]} />}
+      >
         <TouchableOpacity style={styles.backButton} onPress={safeGoBack}>
           <Ionicons name="chevron-back" size={24} color={colors.text} />
         </TouchableOpacity>

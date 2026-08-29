@@ -1,4 +1,14 @@
-import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
+import { MutationCache, QueryCache, QueryClient, focusManager } from "@tanstack/react-query";
+import { AppState, type AppStateStatus } from "react-native";
+
+// react-query's refetchOnWindowFocus only fires on browser focus events out
+// of the box - on native, "focus" means the app coming back to the
+// foreground, which we have to wire up ourselves via AppState. Without this,
+// a pool doc edited elsewhere (e.g. pricing/capacity changed in the facility
+// console) never reaches a member's already-open app until they force-quit.
+AppState.addEventListener("change", (status: AppStateStatus) => {
+  focusManager.setFocused(status === "active");
+});
 
 // Centralized error logging so every screen doesn't need its own try/catch
 // around read/write calls - components still opt in to showing `error` /

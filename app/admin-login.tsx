@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
-import { ActivityIndicator, Image, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { router } from "expo-router";
 import { sendPhoneVerification } from "../firebaseconfig";
 import { safeGoBack } from "../lib/navigation";
@@ -37,7 +37,11 @@ export default function AdminLogin() {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+    >
       <Image source={require("../assets/images/pool.jpg")} style={styles.image} />
       <TouchableOpacity style={styles.backButton} onPress={safeGoBack} hitSlop={8}>
         <Ionicons name="chevron-back" size={22} color="#151515" />
@@ -80,7 +84,7 @@ export default function AdminLogin() {
           {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

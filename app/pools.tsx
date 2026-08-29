@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Pool } from "../lib/firestore";
 import { getPoolImage } from "../lib/pool-images";
 import { errorMessage } from "../lib/query-client";
@@ -34,7 +35,7 @@ export default function Pools() {
   const filteredPools = useMemo(() => pools.filter((pool) => (!activeFilter || matchesFilter(pool, activeFilter)) && pool.name.toLowerCase().includes(query.toLowerCase())), [pools, query, activeFilter]);
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>{t("pools.title")}</Text>
         <View style={styles.search}><Ionicons name="search" size={23} color={colors.textMuted} /><TextInput style={styles.searchInput} placeholder={t("pools.searchPlaceholder")} placeholderTextColor={colors.textFaint} value={query} onChangeText={setQuery} /></View>
@@ -73,7 +74,7 @@ export default function Pools() {
         <TouchableOpacity style={styles.navItem}><Ionicons name="water-outline" size={30} color={colors.primary} /><Text style={[styles.navText, styles.navTextActive]}>{t("common.navPool")}</Text></TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => router.push("/account")}><Ionicons name="person-outline" size={30} color={colors.icon} /><Text style={styles.navText}>{t("common.navProfile")}</Text></TouchableOpacity>
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 

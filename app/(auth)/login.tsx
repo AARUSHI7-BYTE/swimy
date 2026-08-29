@@ -5,7 +5,9 @@ StyleSheet,
 TextInput,
 TouchableOpacity,
 ActivityIndicator,
-Platform
+Platform,
+KeyboardAvoidingView,
+ScrollView
 } from "react-native";
 
 import { useMemo, useState } from "react";
@@ -51,7 +53,13 @@ const sendOtp = async () => {
 
 return(
 
-<View style={styles.container}>
+<KeyboardAvoidingView
+style={styles.flex}
+behavior={Platform.OS === "ios" ? "padding" : "height"}
+keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+>
+
+<ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
 
 <Text style={styles.title}>
 {t("auth.title")}
@@ -109,7 +117,9 @@ disabled={isSending}
 
 </Text>
 
-</View>
+</ScrollView>
+
+</KeyboardAvoidingView>
 
 );
 
@@ -118,8 +128,13 @@ disabled={isSending}
 function createStyles(colors: ThemeColors) {
 return StyleSheet.create({
 
-container:{
+flex:{
 flex:1,
+backgroundColor:colors.background
+},
+
+container:{
+flexGrow:1,
 padding:25,
 paddingTop:100,
 backgroundColor:colors.background

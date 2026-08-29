@@ -35,10 +35,10 @@ function toRule(id: string, poolId: string, data: Record<string, unknown>): Rest
   };
 }
 
-// Firestore rules only grant restrictedTimings reads to facility/admin staff
-// assigned to the pool - a signed-in consumer viewing pool-detail/home is
-// denied by design, and that should just mean "no restrictions to show",
-// not a broken screen.
+// Any signed-in user can read restrictedTimings (see firestore.rules) so
+// members see the same rules facility staff set. Still swallow a
+// permission-denied here rather than surfacing a broken screen, in case
+// rules are ever tightened again for a signed-out/edge-case caller.
 export async function listRules(poolId: string): Promise<RestrictedRule[]> {
   try {
     const snapshot = await getDocs(rulesCollection(poolId));
@@ -52,7 +52,11 @@ export async function listRules(poolId: string): Promise<RestrictedRule[]> {
 }
 
 export async function addRule(poolId: string, rule: NewRestrictedRule): Promise<RestrictedRule> {
-  const docRef = await addDoc(rulesCollection(poolId), rule);
+  // Firestore rejects `undefined` field values, and optional fields like
+  // ageThreshold/label are commonly passed as undefined from the UI - strip
+  // them before writing rather than letting the mutation fail.
+  const data = Object.fromEntries(Object.entries(rule).filter(([, value]) => value !== undefined)) as NewRestrictedRule;
+  const docRef = await addDoc(rulesCollection(poolId), data);
   return { id: docRef.id, poolId, ...rule };
 }
 

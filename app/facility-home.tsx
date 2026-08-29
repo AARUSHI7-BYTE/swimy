@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -195,6 +196,11 @@ export default function FacilityConsole() {
     <FacilityUIContext.Provider value={uiValue}>
       <SafeAreaView style={styles.screen}>
         <View style={styles.topBar}>
+          <View style={styles.brandRow}>
+            <Text style={styles.brandLogo}>swimy</Text>
+            <View style={styles.brandDivider} />
+            <Text style={styles.brandSubtitle}>{t("facility.consoleTitle").toUpperCase()}</Text>
+          </View>
           <TouchableOpacity style={styles.logoutCircle} onPress={confirmLogout} hitSlop={8}>
             <Ionicons name="power" size={18} color={colors.danger} />
           </TouchableOpacity>
@@ -280,7 +286,10 @@ function StaffTab({ pool }: { pool: Pool }) {
   const [inPoolQuery, setInPoolQuery] = useState("");
   const [enteredQuery, setEnteredQuery] = useState("");
   const [exitedQuery, setExitedQuery] = useState("");
-  const [pendingEntry, setPendingEntry] = useState<{ payload: EntryPayload; scannedAt: number } | null>(null);
+  const [listTab, setListTab] = useState<"inPool" | "entered" | "exited">("inPool");
+  const [manualExitId, setManualExitId] = useState<string | null>(null);
+  const [isManualExiting, setIsManualExiting] = useState(false);
+  const [pendingEntry, setPendingEntry] = useState<{ payload: EntryPayload; photoUrl?: string; scannedAt: number } | null>(null);
   const [pendingMemberEntry, setPendingMemberEntry] = useState<{ payload: EntryPayload; membership: Membership; photoUrl?: string; scannedAt: number } | null>(null);
   const [pendingExit, setPendingExit] = useState<{ payload: EntryPayload; entry: Entry; exitedAt: number; due: DueBreakdown } | null>(null);
   const [pendingMemberExit, setPendingMemberExit] = useState<{ payload: EntryPayload; entry: Entry; membership: Membership; photoUrl?: string; exitedAt: number } | null>(null);
@@ -437,7 +446,8 @@ function StaffTab({ pool }: { pool: Pool }) {
           const user = await getUserById(payload.uid);
           setPendingMemberEntry({ payload, membership, photoUrl: user?.photoUrl, scannedAt: Date.now() });
         } else {
-          setPendingEntry({ payload, scannedAt: Date.now() });
+          const user = await getUserById(payload.uid);
+          setPendingEntry({ payload, photoUrl: user?.photoUrl, scannedAt: Date.now() });
         }
       } finally {
         setIsProcessing(false);
@@ -546,6 +556,34 @@ function StaffTab({ pool }: { pool: Pool }) {
     }
   }
 
+  async function manualExit(entry: Entry) {
+    setIsManualExiting(true);
+    const name = entry.people[0]?.name ?? "Guest";
+    try {
+      const exitedAt = Date.now();
+      if (entry.membershipId) {
+        const membership = await getMembershipById(pool.id, entry.membershipId);
+        await checkOutMutation.mutateAsync({ poolId: pool.id, uid: entry.uid, price: 0 });
+        if (membership) {
+          await recordMembershipVisitMutation.mutateAsync({
+            poolId: pool.id,
+            membershipId: membership.id,
+            nextSessionsUsed: membership.sessionsUsed + 1,
+          });
+        }
+      } else {
+        const due = computeDue(entry.pricingSnapshot ?? extractPricingConfig(pool), entry.enteredAt, exitedAt, Math.max(1, entry.people.length));
+        await checkOutMutation.mutateAsync({ poolId: pool.id, uid: entry.uid, price: due.total });
+      }
+      setResult({ success: true, message: t("facility.staff.checkedOut", { name }) });
+    } catch (error) {
+      setResult({ success: false, message: error instanceof Error ? error.message : t("facility.staff.genericError") });
+    } finally {
+      setIsManualExiting(false);
+      setManualExitId(null);
+    }
+  }
+
   const inPoolNow = useMemo(() => entries.filter((entry) => !entry.exitedAt), [entries]);
   const exitedToday = useMemo(() => entries.filter((entry) => entry.exitedAt), [entries]);
 
@@ -611,53 +649,100 @@ function StaffTab({ pool }: { pool: Pool }) {
         )}
       </View>
 
-      <ListSection icon="water-outline" iconColor={colors.primary} emptyIcon="water-outline" title={t("facility.staff.inPoolNow")} count={inPoolNow.length} query={inPoolQuery} onQueryChange={setInPoolQuery} emptyText={t("facility.staff.emptyInPool")}>
-        {filteredInPool.map((entry) => {
-          const { name, meta } = personLine(entry, t);
-          return (
-            <EntryRow key={entry.id} name={name} meta={meta} right={<Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>} />
-          );
-        })}
-      </ListSection>
+      <View style={styles.listTabRow}>
+        <TouchableOpacity style={[styles.listTab, listTab === "inPool" && styles.listTabActive]} onPress={() => setListTab("inPool")}>
+          <Text style={[styles.listTabText, listTab === "inPool" && styles.listTabTextActive]}>{t("facility.staff.tabInPool")}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.listTab, listTab === "entered" && styles.listTabActive]} onPress={() => setListTab("entered")}>
+          <Text style={[styles.listTabText, listTab === "entered" && styles.listTabTextActive]}>{t("facility.staff.tabEntered")}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.listTab, listTab === "exited" && styles.listTabActive]} onPress={() => setListTab("exited")}>
+          <Text style={[styles.listTabText, listTab === "exited" && styles.listTabTextActive]}>{t("facility.staff.tabExited")}</Text>
+        </TouchableOpacity>
+      </View>
 
-      <ListSection icon="arrow-up-outline" iconColor={colors.text} emptyIcon="people-outline" title={t("facility.staff.enteredToday")} count={entries.length} query={enteredQuery} onQueryChange={setEnteredQuery} emptyText={t("facility.staff.emptyEntered")}>
-        {filteredEntered.map((entry) => {
-          const { name, meta } = personLine(entry, t);
-          return (
-            <EntryRow
-              key={entry.id}
-              name={name}
-              meta={meta}
-              right={
-                <View style={{ alignItems: "flex-end" }}>
-                  <Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>
-                  <Text style={styles.rowSubText}>{t("facility.staff.entered")}</Text>
-                </View>
-              }
-            />
-          );
-        })}
-      </ListSection>
+      {listTab === "inPool" && (
+        <ListSection icon="water-outline" iconColor={colors.primary} emptyIcon="water-outline" title={t("facility.staff.inPoolNow")} count={inPoolNow.length} query={inPoolQuery} onQueryChange={setInPoolQuery} emptyText={t("facility.staff.emptyInPool")}>
+          {filteredInPool.map((entry) => {
+            const { name, meta } = personLine(entry, t);
+            return (
+              <Fragment key={entry.id}>
+                <EntryRow
+                  name={name}
+                  meta={meta}
+                  right={
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>
+                      <TouchableOpacity
+                        style={styles.manualExitButton}
+                        onPress={() => setManualExitId((current) => (current === entry.id ? null : entry.id))}
+                      >
+                        <Text style={styles.manualExitButtonText}>{t("facility.staff.exit")}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  }
+                />
+                {manualExitId === entry.id && (
+                  <View style={styles.manualExitConfirm}>
+                    <Text style={styles.manualExitConfirmText}>{t("facility.staff.manualExitConfirm", { name })}</Text>
+                    <View style={styles.manualExitConfirmActions}>
+                      <TouchableOpacity style={styles.manualExitCancelButton} onPress={() => setManualExitId(null)} disabled={isManualExiting}>
+                        <Text style={styles.manualExitCancelButtonText}>{t("common.cancel")}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.manualExitConfirmButton, isManualExiting && styles.primaryButtonDisabled]} onPress={() => manualExit(entry)} disabled={isManualExiting}>
+                        {isManualExiting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.manualExitConfirmButtonText}>{t("facility.staff.confirmManualExit")}</Text>}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </Fragment>
+            );
+          })}
+        </ListSection>
+      )}
 
-      <ListSection icon="arrow-down-outline" iconColor={colors.text} emptyIcon="exit-outline" title={t("facility.staff.exitedToday")} count={exitedToday.length} query={exitedQuery} onQueryChange={setExitedQuery} emptyText={t("facility.staff.emptyExited")}>
-        {filteredExited.map((entry) => {
-          const { name, meta } = personLine(entry, t);
-          return (
-            <EntryRow
-              key={entry.id}
-              name={name}
-              meta={meta}
-              right={
-                <View style={{ alignItems: "flex-end" }}>
-                  <Text style={styles.rowTime}>{formatTime(entry.exitedAt as number)}</Text>
-                  <Text style={styles.rowSubText}>{formatDuration(entry.enteredAt, entry.exitedAt as number)}</Text>
-                  {entry.price != null && <View style={styles.pricePill}><Text style={styles.pricePillText}>₹{entry.price}</Text></View>}
-                </View>
-              }
-            />
-          );
-        })}
-      </ListSection>
+      {listTab === "entered" && (
+        <ListSection icon="arrow-up-outline" iconColor={colors.text} emptyIcon="people-outline" title={t("facility.staff.enteredToday")} count={entries.length} query={enteredQuery} onQueryChange={setEnteredQuery} emptyText={t("facility.staff.emptyEntered")}>
+          {filteredEntered.map((entry) => {
+            const { name, meta } = personLine(entry, t);
+            return (
+              <EntryRow
+                key={entry.id}
+                name={name}
+                meta={meta}
+                right={
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>
+                    <Text style={styles.rowSubText}>{t("facility.staff.entered")}</Text>
+                  </View>
+                }
+              />
+            );
+          })}
+        </ListSection>
+      )}
+
+      {listTab === "exited" && (
+        <ListSection icon="arrow-down-outline" iconColor={colors.text} emptyIcon="exit-outline" title={t("facility.staff.exitedToday")} count={exitedToday.length} query={exitedQuery} onQueryChange={setExitedQuery} emptyText={t("facility.staff.emptyExited")}>
+          {filteredExited.map((entry) => {
+            const { name, meta } = personLine(entry, t);
+            return (
+              <EntryRow
+                key={entry.id}
+                name={name}
+                meta={meta}
+                right={
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={styles.rowTime}>{formatTime(entry.exitedAt as number)}</Text>
+                    <Text style={styles.rowSubText}>{formatDuration(entry.enteredAt, entry.exitedAt as number)}</Text>
+                    {entry.price != null && <View style={styles.pricePill}><Text style={styles.pricePillText}>₹{entry.price}</Text></View>}
+                  </View>
+                }
+              />
+            );
+          })}
+        </ListSection>
+      )}
 
       <Modal
         visible={!!pendingEntry || !!pendingExit || !!pendingMemberEntry || !!pendingMemberExit}
@@ -673,9 +758,13 @@ function StaffTab({ pool }: { pool: Pool }) {
                   <Ionicons name="checkmark" size={30} color={colors.success} />
                 </View>
                 <Text style={styles.modalTitle}>{t("facility.staff.entryConfirmed")}</Text>
-                <View style={styles.modalAvatar}>
-                  <Text style={styles.modalAvatarText}>{initialOf(pendingEntry.payload.people[0]?.name ?? "?")}</Text>
-                </View>
+                {pendingEntry.photoUrl ? (
+                  <Image source={{ uri: pendingEntry.photoUrl }} style={styles.modalPhoto} />
+                ) : (
+                  <View style={styles.modalAvatar}>
+                    <Text style={styles.modalAvatarText}>{initialOf(pendingEntry.payload.people[0]?.name ?? "?")}</Text>
+                  </View>
+                )}
                 <Text style={styles.modalName}>{pendingEntry.payload.people[0]?.name ?? "Guest"}</Text>
                 {pendingEntry.payload.people.length > 1 && (
                   <Text style={styles.modalExtraNames}>
@@ -1180,6 +1269,11 @@ function MembershipTab({ pool }: { pool: Pool }) {
   }
 
   return (
+    <KeyboardAvoidingView
+      style={styles.tabScroll}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+    >
     <ScrollView style={styles.tabScroll} contentContainerStyle={styles.tabContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <Text style={styles.tabTitle}>{t("facility.membership.title")}</Text>
       <Stepper step={step} />
@@ -1384,6 +1478,7 @@ function MembershipTab({ pool }: { pool: Pool }) {
         })
       )}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -2014,7 +2109,7 @@ function PricingModal({ visible, pool, onClose, onSaved }: { visible: boolean; p
   );
 }
 
-const SEGMENTS: Segment[] = ["women", "senior", "children", "coaching"];
+const SEGMENTS: Segment[] = ["women", "coaching"];
 const DAY_SHORT_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 function RestrictedTimingsModal({ visible, pool, onClose }: { visible: boolean; pool: Pool; onClose: () => void }) {
@@ -2026,7 +2121,6 @@ function RestrictedTimingsModal({ visible, pool, onClose }: { visible: boolean; 
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [startTime, setStartTime] = useState(() => new Date(0, 0, 0, 8, 0));
   const [endTime, setEndTime] = useState(() => new Date(0, 0, 0, 10, 0));
-  const [ageThreshold, setAgeThreshold] = useState("60");
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -2057,13 +2151,7 @@ function RestrictedTimingsModal({ visible, pool, onClose }: { visible: boolean; 
       setErrorMessage(t("facility.timings.errorEndBeforeStart"));
       return;
     }
-    const needsAge = segment === "senior" || segment === "children";
-    const parsedAge = Number(ageThreshold);
-    if (needsAge && (!ageThreshold.trim() || !Number.isFinite(parsedAge) || parsedAge <= 0)) {
-      setErrorMessage(t("facility.timings.errorAge"));
-      return;
-    }
-    const rule: NewRestrictedRule = { segment, days, startMin, endMin, ageThreshold: needsAge ? parsedAge : undefined };
+    const rule: NewRestrictedRule = { segment, days, startMin, endMin };
     setErrorMessage("");
     try {
       await addRuleMutation.mutateAsync({ poolId: pool.id, rule });
@@ -2165,13 +2253,6 @@ function RestrictedTimingsModal({ visible, pool, onClose }: { visible: boolean; 
                       if (selectedDate) setEndTime(selectedDate);
                     }}
                   />
-                )}
-
-                {(segment === "senior" || segment === "children") && (
-                  <>
-                    <Text style={styles.fieldLabel}>{segment === "senior" ? t("facility.timings.minAge") : t("facility.timings.maxAge")}</Text>
-                    <TextInput style={styles.formInput} value={ageThreshold} onChangeText={(v) => setAgeThreshold(v.replace(/[^0-9]/g, ""))} keyboardType="number-pad" />
-                  </>
                 )}
 
                 {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
@@ -3531,7 +3612,11 @@ function MembershipHistoryScreen({ pool, membership, onBack }: { pool: Pool; mem
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
     screen: { flex: 1, backgroundColor: colors.background },
-    topBar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14 },
+    topBar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderColor: colors.border },
+    brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+    brandLogo: { color: colors.primary, fontSize: 19, fontWeight: "800" },
+    brandDivider: { width: 1, height: 16, backgroundColor: colors.border },
+    brandSubtitle: { color: colors.textMuted, fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
     logoutCircle: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.dangerSoft, alignItems: "center", justifyContent: "center" },
 
     emptyState: { alignItems: "center", marginTop: 60, gap: 8, paddingHorizontal: 30 },
@@ -3577,6 +3662,12 @@ function createStyles(colors: ThemeColors) {
     flashlightRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, backgroundColor: colors.surfaceAlt, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
     flashlightText: { color: colors.textMuted, fontSize: 13, flexShrink: 1 },
 
+    listTabRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+    listTab: { flex: 1, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+    listTabActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+    listTabText: { color: colors.textMuted, fontSize: 13, fontWeight: "700" },
+    listTabTextActive: { color: colors.primary },
+
     sectionCard: { borderWidth: 1, borderColor: colors.border, borderRadius: 18, padding: 16, marginBottom: 16, backgroundColor: colors.surface },
     sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
     sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -3588,6 +3679,16 @@ function createStyles(colors: ThemeColors) {
     emptySection: { alignItems: "center", paddingVertical: 22, gap: 10 },
     emptyIconCircle: { width: 54, height: 54, borderRadius: 27, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
     sectionEmpty: { color: colors.textFaint, fontSize: 13, textAlign: "center" },
+
+    manualExitButton: { height: 30, paddingHorizontal: 12, borderRadius: 15, borderWidth: 1, borderColor: colors.danger, alignItems: "center", justifyContent: "center" },
+    manualExitButtonText: { color: colors.danger, fontSize: 12.5, fontWeight: "700" },
+    manualExitConfirm: { backgroundColor: colors.dangerSoft, borderRadius: 12, padding: 12, marginBottom: 4, gap: 10 },
+    manualExitConfirmText: { color: colors.danger, fontSize: 12.5, fontWeight: "600" },
+    manualExitConfirmActions: { flexDirection: "row", gap: 8, justifyContent: "flex-end" },
+    manualExitCancelButton: { height: 34, paddingHorizontal: 14, borderRadius: 10, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+    manualExitCancelButtonText: { color: colors.text, fontSize: 12.5, fontWeight: "700" },
+    manualExitConfirmButton: { height: 34, paddingHorizontal: 14, borderRadius: 10, backgroundColor: colors.danger, alignItems: "center", justifyContent: "center" },
+    manualExitConfirmButtonText: { color: "#fff", fontSize: 12.5, fontWeight: "700" },
 
     entryRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderColor: colors.border },
     entryAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },

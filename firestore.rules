@@ -98,6 +98,13 @@ service cloud.firestore {
       match /entries/{entryId} {
         allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
       }
+
+      // Restricted-timing rules must be visible to any signed-in member
+      // browsing/using this pool (home.tsx and pool-detail.tsx both display
+      // them) - only facility staff assigned to the pool can write them.
+      match /restrictedTimings/{ruleId} {
+        allow read: if isSignedIn();
+      }
     }
   }
 }
