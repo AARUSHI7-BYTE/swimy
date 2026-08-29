@@ -18,6 +18,9 @@ const config = {
         ? "com.aromapools.swimy"
         : "com.aromapools.swimy.dev",
       googleServicesFile: "./GoogleService-Info.plist",
+      infoPlist: {
+        ITSAppUsesNonExemptEncryption: false,
+      },
     },
     android: {
       adaptiveIcon: {
