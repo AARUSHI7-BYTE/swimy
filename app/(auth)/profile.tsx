@@ -9,7 +9,7 @@ import { useLanguage } from "../../context/language-context";
 import { useTheme } from "../../context/theme-context";
 import { ThemeColors } from "../../lib/theme";
 import { uploadUserPhoto } from "../../lib/storage";
-import { useUpdateUserPhotoMutation } from "../../lib/queries";
+import { useSaveUserProfileMutation, useUpdateUserPhotoMutation } from "../../lib/queries";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MIN_AGE = 5;
@@ -27,6 +27,21 @@ function yearsAgo(years: number) {
 
 function formatDobDisplay(dob: Date) {
   return `${String(dob.getDate()).padStart(2, "0")} ${months[dob.getMonth()]} ${dob.getFullYear()}`;
+}
+
+// Parses the "DD/MM/YYYY" string saved by saveProfile() back into a Date,
+// so re-opening this screen (it doubles as Edit Profile from account.tsx)
+// shows the previously saved date of birth instead of resetting to blank.
+function parseDobString(raw: string): Date | null {
+  const digits = raw.match(/\d+/g);
+  if (!digits || digits.length < 3) return null;
+  const [dayStr, monthStr, yearStr] = digits;
+  const day = parseInt(dayStr, 10);
+  const month = parseInt(monthStr, 10);
+  const year = parseInt(yearStr, 10);
+  if (!day || !month || !year) return null;
+  const date = new Date(year, month - 1, day);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function dobError(dob: Date | null, t: (key: string, vars?: Record<string, string | number>) => string) {
@@ -51,12 +66,13 @@ export default function Profile() {
     { value: "male", label: t("common.male") },
     { value: "other", label: t("common.other") },
   ];
-  const { uid, userName, setUserName, profilePhotoUri, setProfilePhotoUri, setGender: setContextGender, setDateOfBirth } = useAppContext();
+  const { uid, userName, setUserName, profilePhotoUri, setProfilePhotoUri, gender: contextGender, dateOfBirth: contextDob, setGender: setContextGender, setDateOfBirth } = useAppContext();
   const [fullName, setFullName] = useState(userName);
-  const [dob, setDob] = useState<Date | null>(null);
+  const [dob, setDob] = useState<Date | null>(() => parseDobString(contextDob));
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [gender, setGender] = useState<"female" | "male" | "other">("female");
-  const [otherGenderText, setOtherGenderText] = useState("");
+  const matchedGenderOption = genderOptions.find((option) => option.value !== "other" && option.label.toLowerCase() === contextGender.toLowerCase());
+  const [gender, setGender] = useState<"female" | "male" | "other">(() => matchedGenderOption?.value ?? (contextGender ? "other" : "female"));
+  const [otherGenderText, setOtherGenderText] = useState(() => (matchedGenderOption ? "" : contextGender));
   const [emergencyContact, setEmergencyContact] = useState("");
   const [showGenderChoices, setShowGenderChoices] = useState(false);
   const [showNameError, setShowNameError] = useState(false);
@@ -64,6 +80,7 @@ export default function Profile() {
   const [photoError, setPhotoError] = useState("");
   const [showOtherGenderError, setShowOtherGenderError] = useState(false);
   const updateUserPhotoMutation = useUpdateUserPhotoMutation();
+  const saveUserProfileMutation = useSaveUserProfileMutation();
 
   function handleDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
     if (Platform.OS === "android") {
@@ -158,10 +175,18 @@ export default function Profile() {
       setShowOtherGenderError(true);
       return;
     }
-    setUserName(fullName.trim());
+    const trimmedName = fullName.trim();
+    setUserName(trimmedName);
     const genderLabel = gender === "other" ? otherGenderText.trim() : genderOptions.find((option) => option.value === gender)?.label ?? "";
     setContextGender(genderLabel);
-    if (dob) setDateOfBirth(`${String(dob.getDate()).padStart(2, "0")}/${String(dob.getMonth() + 1).padStart(2, "0")}/${dob.getFullYear()}`);
+    const dobLabel = dob ? `${String(dob.getDate()).padStart(2, "0")}/${String(dob.getMonth() + 1).padStart(2, "0")}/${dob.getFullYear()}` : "";
+    if (dobLabel) setDateOfBirth(dobLabel);
+    // Persist to Firestore (not just local state/AsyncStorage) so this
+    // member is recognized as a returning member on any device/reinstall,
+    // not only the one they filled this form out on.
+    if (uid) {
+      saveUserProfileMutation.mutate({ uid, profile: { userName: trimmedName, dateOfBirth: dobLabel, gender: genderLabel } });
+    }
     router.push({ pathname: "/location", params: { isSignup: "1" } });
   }
 

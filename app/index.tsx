@@ -1,4 +1,5 @@
 import { View, Text, Image, ImageBackground, StyleSheet } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useMemo } from "react";
 import { router } from "expo-router";
 import { getCurrentUser } from "../firebaseconfig";
@@ -19,6 +20,8 @@ export default function SplashScreen() {
     setProfilePhotoUri,
     setLocationLabel,
     setCoordinates,
+    setGender,
+    setDateOfBirth,
   } = useAppContext();
   const { colors } = useTheme();
   const { t } = useLanguage();
@@ -51,15 +54,21 @@ export default function SplashScreen() {
           return;
         }
 
-        const storedProfile = await getStoredProfile(phoneDigits);
-        if (!storedProfile) {
+        // Recognize a returning member from their Firestore profile, not
+        // just local AsyncStorage - a fresh install/new device otherwise
+        // has no stored profile and would wrongly send an already-enrolled
+        // member back into onboarding.
+        if (!userDoc.userName) {
           router.replace("/onboarding");
           return;
         }
-        setUserName(storedProfile.userName);
-        setProfilePhotoUri(storedProfile.profilePhotoUri);
-        setLocationLabel(storedProfile.locationLabel);
-        setCoordinates(storedProfile.coordinates);
+        const storedProfile = await getStoredProfile(phoneDigits);
+        setUserName(userDoc.userName);
+        if (userDoc.gender) setGender(userDoc.gender);
+        if (userDoc.dateOfBirth) setDateOfBirth(userDoc.dateOfBirth);
+        setProfilePhotoUri(storedProfile?.profilePhotoUri ?? null);
+        setLocationLabel(storedProfile?.locationLabel ?? "");
+        setCoordinates(storedProfile?.coordinates ?? "");
         router.replace("/home");
       } catch (error) {
         console.error("Failed to restore session", error);
@@ -75,23 +84,29 @@ export default function SplashScreen() {
       source={require("../assets/images/splash-bg.jpg")}
       style={styles.container}
     >
-      <View style={styles.overlay}>
+      <LinearGradient
+        colors={["rgba(44,64,240,0.35)", "rgba(0,30,213,0.88)"]}
+        style={styles.overlay}
+      >
+        <View style={styles.glowOuter} />
+        <View style={styles.glowInner} />
 
-        <View style={styles.logoBadge}>
-          <Image
-            source={require("../assets/images/swim-icon-blue.png")}
-            style={styles.logo}
-            resizeMode="contain"
-          />
+        <View style={styles.content}>
+          <View style={styles.logoBadge}>
+            <Image
+              source={require("../assets/images/swim-icon-blue.png")}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </View>
+
+          <Text style={styles.title}>Swimy</Text>
+
+          <Text style={styles.subtitle}>
+            {t("splash.tagline")}
+          </Text>
         </View>
-
-        <Text style={styles.title}>Swimy</Text>
-
-        <Text style={styles.subtitle}>
-          {t("splash.tagline")}
-        </Text>
-
-      </View>
+      </LinearGradient>
     </ImageBackground>
   );
 }
@@ -108,18 +123,43 @@ function createStyles(colors: ThemeColors) {
       alignItems:"center"
     },
 
+    glowOuter:{
+      position:"absolute",
+      width:380,
+      height:380,
+      borderRadius:190,
+      backgroundColor:"#2c40f0",
+      opacity:0.18
+    },
+
+    glowInner:{
+      position:"absolute",
+      width:260,
+      height:260,
+      borderRadius:130,
+      backgroundColor:"#2c40f0",
+      opacity:0.22
+    },
+
+    content:{
+      justifyContent:"center",
+      alignItems:"center",
+      paddingHorizontal:20
+    },
+
     logoBadge:{
       width:160,
       height:160,
-      borderRadius:34,
+      borderRadius:32,
       backgroundColor:"#ffffff",
       justifyContent:"center",
       alignItems:"center",
+      marginBottom:24,
       shadowColor:"#000",
-      shadowOpacity:0.15,
-      shadowRadius:12,
-      shadowOffset:{ width:0, height:4 },
-      elevation:4
+      shadowOpacity:0.2,
+      shadowRadius:16,
+      shadowOffset:{ width:0, height:8 },
+      elevation:6
     },
 
     logo:{
@@ -129,14 +169,23 @@ function createStyles(colors: ThemeColors) {
 
     title:{
       fontSize:48,
+      lineHeight:56,
       color:"#ffffff",
-      fontWeight:"600",
-      marginTop:10
+      fontWeight:"700",
+      letterSpacing:-0.5,
+      textAlign:"center",
+      marginBottom:8,
+      textShadowColor:"rgba(0,0,0,0.25)",
+      textShadowOffset:{ width:0, height:2 },
+      textShadowRadius:6
     },
 
     subtitle:{
-      color:"#ffffff",
-      fontSize:18
+      color:"#eef0ff",
+      fontSize:18,
+      fontWeight:"500",
+      letterSpacing:0.3,
+      textAlign:"center"
     }
   });
 }

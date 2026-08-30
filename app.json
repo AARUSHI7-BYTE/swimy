@@ -23,7 +23,13 @@
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.aaru.Swimy"
+      "package": "com.aaru.Swimy",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "output": "static",
@@ -90,6 +96,7 @@
       "eas": {
         "projectId": "fa794287-7455-45ac-bc5c-c86ee424ef34"
       }
-    }
+    },
+    "owner": "aaru_07"
   }
 }

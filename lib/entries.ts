@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDocs, getFirestore, increment, onSnapshot, query, updateDoc, where, type Unsubscribe } from "@react-native-firebase/firestore";
+import { collection, doc, getDocs, getFirestore, increment, onSnapshot, query, where, writeBatch, type Unsubscribe } from "@react-native-firebase/firestore";
 import type { PricingConfig } from "./pricing";
 
 const db = getFirestore();
@@ -62,7 +62,13 @@ export async function checkIn(
     throw new Error("Already checked in at this pool.");
   }
   const enteredAt = Date.now();
-  const docRef = await addDoc(entriesCollection(poolId), {
+  const entryRef = doc(entriesCollection(poolId));
+  // Batched so the entry doc and the occupancy counter always move together -
+  // previously these were two separate awaited writes with the occupancy
+  // update's error silently swallowed, which could leave liveOccupancy out of
+  // sync with the entries that actually exist.
+  const batch = writeBatch(db);
+  batch.set(entryRef, {
     uid,
     people,
     enteredAt,
@@ -71,8 +77,9 @@ export async function checkIn(
     pricingSnapshot,
     ...(membershipId ? { membershipId } : {}),
   });
-  await updateDoc(doc(db, "pools", poolId), { liveOccupancy: increment(1) }).catch(() => {});
-  return { id: docRef.id, poolId, uid, people, enteredAt, exitedAt: null, price: null, pricingSnapshot, membershipId };
+  batch.update(doc(db, "pools", poolId), { liveOccupancy: increment(1) });
+  await batch.commit();
+  return { id: entryRef.id, poolId, uid, people, enteredAt, exitedAt: null, price: null, pricingSnapshot, membershipId };
 }
 
 export async function checkOut(poolId: string, uid: string, price: number): Promise<Entry> {
@@ -81,8 +88,10 @@ export async function checkOut(poolId: string, uid: string, price: number): Prom
     throw new Error("No active entry found for this pass.");
   }
   const exitedAt = Date.now();
-  await updateDoc(doc(db, "pools", poolId, "entries", existing.id), { exitedAt, price });
-  await updateDoc(doc(db, "pools", poolId), { liveOccupancy: increment(-1) }).catch(() => {});
+  const batch = writeBatch(db);
+  batch.update(doc(db, "pools", poolId, "entries", existing.id), { exitedAt, price });
+  batch.update(doc(db, "pools", poolId), { liveOccupancy: increment(-1) });
+  await batch.commit();
   return { ...existing, exitedAt, price };
 }
 

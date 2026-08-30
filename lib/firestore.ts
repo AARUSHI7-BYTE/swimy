@@ -11,6 +11,9 @@ export type UserDocument = {
   role: UserRole;
   poolIds: string[];
   photoUrl?: string;
+  userName?: string;
+  dateOfBirth?: string;
+  gender?: string;
 };
 
 function normalizeRole(role: unknown): UserRole {
@@ -33,12 +36,26 @@ export async function ensureUserDocument(uid: string, phoneNumber: string): Prom
       role: normalizeRole(data.role),
       poolIds: Array.isArray(data.poolIds) ? data.poolIds : [],
       photoUrl: typeof data.photoUrl === "string" ? data.photoUrl : undefined,
+      userName: typeof data.userName === "string" ? data.userName : undefined,
+      dateOfBirth: typeof data.dateOfBirth === "string" ? data.dateOfBirth : undefined,
+      gender: typeof data.gender === "string" ? data.gender : undefined,
     };
   }
 
   const newUser = { phoneNumber, role: "user" as const, poolIds: [] as string[] };
   await setDoc(userRef, newUser);
   return { uid, ...newUser };
+}
+
+// Persists the swimmer's name/DOB/gender collected in the onboarding profile
+// screen onto users/{uid}, so a returning member is recognized by their
+// Firestore profile (not just local AsyncStorage on the device they signed
+// up on) and isn't sent through onboarding again on a new device/reinstall.
+export async function saveUserProfile(
+  uid: string,
+  profile: { userName: string; dateOfBirth: string; gender: string }
+): Promise<void> {
+  await setDoc(doc(db, "users", uid), profile, { merge: true });
 }
 
 // Persists the download URL for the swimmer's profile photo, uploaded via
@@ -60,6 +77,9 @@ export async function getUserById(uid: string): Promise<UserDocument | null> {
     role: normalizeRole(data.role),
     poolIds: Array.isArray(data.poolIds) ? data.poolIds : [],
     photoUrl: typeof data.photoUrl === "string" ? data.photoUrl : undefined,
+    userName: typeof data.userName === "string" ? data.userName : undefined,
+    dateOfBirth: typeof data.dateOfBirth === "string" ? data.dateOfBirth : undefined,
+    gender: typeof data.gender === "string" ? data.gender : undefined,
   };
 }
 
@@ -76,6 +96,9 @@ export async function getUserByPhone(phoneNumber: string): Promise<UserDocument 
     role: normalizeRole(data.role),
     poolIds: Array.isArray(data.poolIds) ? data.poolIds : [],
     photoUrl: typeof data.photoUrl === "string" ? data.photoUrl : undefined,
+    userName: typeof data.userName === "string" ? data.userName : undefined,
+    dateOfBirth: typeof data.dateOfBirth === "string" ? data.dateOfBirth : undefined,
+    gender: typeof data.gender === "string" ? data.gender : undefined,
   };
 }
 

@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, getFirestore, query, updateDoc, where } from "@react-native-firebase/firestore";
+import { addDoc, collection, collectionGroup, doc, getDoc, getDocs, getFirestore, query, updateDoc, where } from "@react-native-firebase/firestore";
 import { logMembershipEdit } from "./membershipAuditLog";
 
 const db = getFirestore();
@@ -32,6 +32,11 @@ export type Membership = {
   status: MembershipStatus;
   pausedAt: number | null; // set while status is "inactive" from a pause (not a manual deactivation)
   totalPausedDays: number;
+  // Days the member selected when starting the current pause (against their
+  // tier's pauseDaysAllowed) - purely informational ("resume by" reminder),
+  // cleared on resume. Null for a facility-initiated pause, which has no
+  // day picker.
+  pausePlannedDays: number | null;
 };
 
 export type NewMembership = {
@@ -85,6 +90,7 @@ function toMembership(id: string, poolId: string, data: Record<string, unknown>)
     status: data.status === "inactive" ? "inactive" : "active",
     pausedAt: typeof data.pausedAt === "number" ? data.pausedAt : null,
     totalPausedDays: typeof data.totalPausedDays === "number" ? data.totalPausedDays : 0,
+    pausePlannedDays: typeof data.pausePlannedDays === "number" ? data.pausePlannedDays : null,
   };
 }
 
@@ -106,6 +112,7 @@ export async function addMembership(membership: NewMembership, actor: Membership
     status: "active" as const,
     pausedAt: null as number | null,
     totalPausedDays: 0,
+    pausePlannedDays: null as number | null,
   };
   const docRef = await addDoc(membershipsCollection(membership.poolId), record);
   await logMembershipEdit(membership.poolId, docRef.id, {
@@ -138,8 +145,8 @@ export async function setMembershipStatus(poolId: string, membershipId: string, 
 // end-date out by however long the member was paused and logs both a
 // "paused N days" summary (backdated to when the pause started) and a
 // "resumed" entry, for the Membership History screen.
-export async function pauseMembership(poolId: string, membershipId: string): Promise<void> {
-  await updateDoc(doc(db, "pools", poolId, "memberships", membershipId), { status: "inactive", pausedAt: Date.now() });
+export async function pauseMembership(poolId: string, membershipId: string, plannedDays: number | null = null): Promise<void> {
+  await updateDoc(doc(db, "pools", poolId, "memberships", membershipId), { status: "inactive", pausedAt: Date.now(), pausePlannedDays: plannedDays });
 }
 
 export async function resumeMembership(poolId: string, membership: Membership, actor: MembershipActor): Promise<void> {
@@ -153,6 +160,7 @@ export async function resumeMembership(poolId: string, membership: Membership, a
   await updateDoc(doc(db, "pools", poolId, "memberships", membership.id), {
     status: "active",
     pausedAt: null,
+    pausePlannedDays: null,
     endDate: nextEndDate,
     totalPausedDays: nextTotalPaused,
   });
@@ -196,5 +204,19 @@ export async function listMembershipsByPhone(poolId: string, phone: string): Pro
   const snapshot = await getDocs(query(membershipsCollection(poolId), where("phone", "==", phone)));
   return snapshot.docs
     .map((docSnap) => toMembership(docSnap.id, poolId, docSnap.data()))
+    .sort((a, b) => b.startDate - a.startDate);
+}
+
+// Looks up a phone number's membership(s) across every pool, not just one -
+// used during onboarding so a member enrolled by facility staff (who picks
+// the pool, not the member) is recognized and has their name/gender prefilled
+// on /profile instead of it coming up blank as if they were brand new. Valid
+// under firestore.rules' memberships rule, which checks resource.data.phone
+// with no dependency on the parent pool, so it's satisfiable as a
+// collectionGroup query the same way the per-pool query is.
+export async function findMembershipsAcrossPoolsByPhone(phone: string): Promise<Membership[]> {
+  const snapshot = await getDocs(query(collectionGroup(db, "memberships"), where("phone", "==", phone)));
+  return snapshot.docs
+    .map((docSnap) => toMembership(docSnap.id, docSnap.ref.parent.parent?.id ?? "", docSnap.data()))
     .sort((a, b) => b.startDate - a.startDate);
 }

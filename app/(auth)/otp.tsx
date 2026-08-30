@@ -15,6 +15,7 @@ import { router, Stack, useLocalSearchParams } from "expo-router";
 import { confirmPhoneVerification, sendPhoneVerification, signOutUser } from "../../firebaseconfig";
 import { useAppContext } from "../../context/app-context";
 import { getStoredProfile } from "../../lib/profile-storage";
+import { findMembershipsAcrossPoolsByPhone } from "../../lib/memberships";
 import { useEnsureUserDocumentMutation } from "../../lib/queries";
 import { useLanguage } from "../../context/language-context";
 import { useTheme } from "../../context/theme-context";
@@ -38,6 +39,8 @@ export default function Otp() {
     setUid,
     setRole,
     setPoolIds,
+    setGender,
+    setDateOfBirth,
   } = useAppContext();
   const [code, setCode] = useState(Array(OTP_LENGTH).fill(""));
   const [isVerifying, setIsVerifying] = useState(false);
@@ -128,17 +131,42 @@ export default function Otp() {
         return;
       }
 
-      // Existing users (a profile was already completed on this device) go
-      // straight back in; new numbers are routed into onboarding.
+      // Existing members are recognized from their Firestore profile
+      // (users/{uid}.userName), which is set the first time /profile is
+      // completed on any device - not from local AsyncStorage alone, which
+      // only remembers a profile on the exact device/install it was filled
+      // out on and would otherwise send an already-enrolled member (e.g.
+      // signed up for a membership by facility staff, or logging in from a
+      // new phone) back through name/DOB onboarding as if they were new.
       const storedProfile = await getStoredProfile(phoneNumber);
       setPhoneNumber(phoneNumber);
-      if (storedProfile) {
-        setUserName(storedProfile.userName);
-        setProfilePhotoUri(storedProfile.profilePhotoUri);
-        setLocationLabel(storedProfile.locationLabel);
-        setCoordinates(storedProfile.coordinates);
+      if (userDoc.userName) {
+        setUserName(userDoc.userName);
+        if (userDoc.gender) setGender(userDoc.gender);
+        if (userDoc.dateOfBirth) setDateOfBirth(userDoc.dateOfBirth);
+        setProfilePhotoUri(storedProfile?.profilePhotoUri ?? null);
+        setLocationLabel(storedProfile?.locationLabel ?? "");
+        setCoordinates(storedProfile?.coordinates ?? "");
         router.replace("/location");
         return;
+      }
+
+      // Not recognized from a completed self-service profile - but if
+      // facility staff already enrolled this phone number in a membership
+      // (they pick the pool, not the member, so this can't be caught by the
+      // Firestore profile check above), prefill the name/gender they entered
+      // rather than sending the member into a blank form as if new. Age was
+      // captured, not an exact DOB, so DOB is intentionally left for the
+      // member to fill in themselves.
+      try {
+        const memberships = await findMembershipsAcrossPoolsByPhone(phoneNumber);
+        const primary = memberships[0]?.members[0];
+        if (primary) {
+          setUserName(primary.name);
+          if (primary.gender) setGender(primary.gender);
+        }
+      } catch (lookupError) {
+        console.error("Failed to look up staff-enrolled membership by phone", lookupError);
       }
 
       router.replace("/profile");

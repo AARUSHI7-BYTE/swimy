@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as Print from "expo-print";
 import { shareAsync } from "expo-sharing";
@@ -13,7 +13,7 @@ import { useTheme } from "../context/theme-context";
 import { ThemeColors } from "../lib/theme";
 import { signOutUser } from "../firebaseconfig";
 import { errorMessage } from "../lib/query-client";
-import { useAuthReady, useMembershipsByPhoneQuery, usePoolQuery, useSetMembershipStatusMutation } from "../lib/queries";
+import { useAuthReady, useMembershipsByPhoneQuery, useMembershipTiersQuery, usePauseMembershipMutation, usePoolQuery, useResumeMembershipMutation } from "../lib/queries";
 import { Membership } from "../lib/memberships";
 import { ageFromDateOfBirth } from "../lib/age";
 import { buildMembershipQrValue, MembershipQrPayload } from "../lib/membership-qr";
@@ -43,15 +43,28 @@ export default function Account() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [qrModalMembership, setQrModalMembership] = useState<Membership | null>(null);
+  const [pauseModalMembership, setPauseModalMembership] = useState<Membership | null>(null);
+  const [pauseDays, setPauseDays] = useState(1);
   const qrRefs = useRef<Record<string, { toDataURL: (callback: (base64: string) => void) => void } | null>>({});
 
   const authReady = useAuthReady();
   const membershipsQuery = useMembershipsByPhoneQuery(selectedPoolId, phoneNumber);
   const poolQuery = usePoolQuery(selectedPoolId);
-  const setStatusMutation = useSetMembershipStatusMutation();
+  const tiersQuery = useMembershipTiersQuery(selectedPoolId);
+  const pauseMutation = usePauseMembershipMutation();
+  const resumeMutation = useResumeMembershipMutation();
   const memberships = membershipsQuery.data ?? [];
+  const tiers = tiersQuery.data ?? [];
   const pool = poolQuery.data ?? null;
   const isLoading = membershipsQuery.isLoading || poolQuery.isLoading;
+
+  // Tier's pauseDaysAllowed minus what this membership has already used -
+  // null means the tier has no pause-day limit (unlimited).
+  function pauseDaysRemaining(membership: Membership): number | null {
+    const tier = tiers.find((t) => t.id === membership.tierId);
+    if (!tier || tier.pauseDaysAllowed == null) return null;
+    return Math.max(0, tier.pauseDaysAllowed - membership.totalPausedDays);
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -103,16 +116,31 @@ export default function Account() {
     setQrModalMembership(membership);
   }
 
-  async function togglePause(membership: Membership) {
+  function openPauseModal(membership: Membership) {
+    const remaining = pauseDaysRemaining(membership);
+    setPauseDays(remaining == null ? 1 : Math.min(1, remaining));
+    setPauseModalMembership(membership);
+  }
+
+  async function confirmPause() {
+    if (!pauseModalMembership) return;
+    setTogglingId(pauseModalMembership.id);
+    try {
+      await pauseMutation.mutateAsync({ poolId: pauseModalMembership.poolId, membershipId: pauseModalMembership.id, plannedDays: pauseDays });
+      setPauseModalMembership(null);
+    } catch (error) {
+      Alert.alert(t("common.error"), errorMessage(error, "Couldn't pause your membership."));
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  async function resumeNow(membership: Membership) {
     setTogglingId(membership.id);
     try {
-      await setStatusMutation.mutateAsync({
-        poolId: membership.poolId,
-        membershipId: membership.id,
-        status: membership.status === "active" ? "inactive" : "active",
-      });
+      await resumeMutation.mutateAsync({ poolId: membership.poolId, membership, actor: { actorUid: uid, actorRole: "user" } });
     } catch (error) {
-      Alert.alert(t("common.error"), errorMessage(error, "Couldn't update your membership."));
+      Alert.alert(t("common.error"), errorMessage(error, "Couldn't resume your membership."));
     } finally {
       setTogglingId(null);
     }
@@ -224,7 +252,7 @@ export default function Account() {
                   <TouchableOpacity
                     style={[styles.outlineButton, styles.pauseButton, isToggling && styles.buttonDisabled]}
                     activeOpacity={0.8}
-                    onPress={() => togglePause(membership)}
+                    onPress={() => (membership.status === "active" ? openPauseModal(membership) : resumeNow(membership))}
                     disabled={isToggling}
                   >
                     {isToggling ? (
@@ -307,6 +335,77 @@ export default function Account() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={!!pauseModalMembership} transparent animationType="fade" onRequestClose={() => setPauseModalMembership(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.pauseModalCard}>
+            {pauseModalMembership && (() => {
+              const tier = tiers.find((t) => t.id === pauseModalMembership.tierId);
+              const remaining = pauseDaysRemaining(pauseModalMembership);
+              const usedUp = remaining === 0;
+              return (
+                <>
+                  <Text style={styles.qrModalTitle}>{t("account.pauseModalTitle")}</Text>
+                  <Text style={styles.pauseAllowanceText}>
+                    {tier?.pauseDaysAllowed == null
+                      ? t("account.pauseAllowanceUnlimited")
+                      : usedUp
+                        ? t("account.pauseAllowanceUsedUp", { total: tier.pauseDaysAllowed })
+                        : t("account.pauseAllowanceRemaining", { remaining: remaining ?? 0, total: tier.pauseDaysAllowed })}
+                  </Text>
+
+                  {!usedUp && (
+                    <>
+                      <Text style={styles.pauseDaysLabel}>{t("account.pauseDaysLabel")}</Text>
+                      <View style={styles.pauseStepperRow}>
+                        <TouchableOpacity
+                          style={styles.pauseStepperButton}
+                          onPress={() => setPauseDays((d) => Math.max(1, d - 1))}
+                          disabled={pauseDays <= 1}
+                        >
+                          <Ionicons name="remove" size={20} color={pauseDays <= 1 ? colors.textFaint : colors.text} />
+                        </TouchableOpacity>
+                        <TextInput
+                          style={styles.pauseStepperValue}
+                          value={String(pauseDays)}
+                          keyboardType="number-pad"
+                          onChangeText={(v) => {
+                            const n = parseInt(v.replace(/[^0-9]/g, ""), 10);
+                            if (Number.isNaN(n)) { setPauseDays(1); return; }
+                            setPauseDays(remaining == null ? Math.max(1, n) : Math.min(Math.max(1, n), remaining));
+                          }}
+                        />
+                        <TouchableOpacity
+                          style={styles.pauseStepperButton}
+                          onPress={() => setPauseDays((d) => (remaining == null ? d + 1 : Math.min(remaining, d + 1)))}
+                          disabled={remaining != null && pauseDays >= remaining}
+                        >
+                          <Ionicons name="add" size={20} color={remaining != null && pauseDays >= remaining ? colors.textFaint : colors.text} />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+
+                  <View style={styles.pauseModalActions}>
+                    <TouchableOpacity style={styles.pauseModalCancel} onPress={() => setPauseModalMembership(null)} disabled={togglingId === pauseModalMembership.id}>
+                      <Text style={styles.pauseModalCancelText}>{t("common.cancel")}</Text>
+                    </TouchableOpacity>
+                    {!usedUp && (
+                      <TouchableOpacity
+                        style={[styles.pauseModalConfirm, togglingId === pauseModalMembership.id && styles.buttonDisabled]}
+                        onPress={confirmPause}
+                        disabled={togglingId === pauseModalMembership.id}
+                      >
+                        {togglingId === pauseModalMembership.id ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.pauseModalConfirmText}>{t("account.pauseConfirm")}</Text>}
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -361,6 +460,18 @@ function createStyles(colors: ThemeColors) {
     qrModalCaption: { color: colors.textMuted, fontSize: 13, marginTop: 16, textAlign: "center" },
     qrModalClose: { height: 50, borderRadius: 14, alignSelf: "stretch", alignItems: "center", justifyContent: "center", marginTop: 20, backgroundColor: colors.primary },
     qrModalCloseText: { color: "#fff", fontSize: 15.5, fontWeight: "700" },
+
+    pauseModalCard: { width: "100%", maxWidth: 340, backgroundColor: colors.surface, borderRadius: 22, padding: 24 },
+    pauseAllowanceText: { color: colors.textMuted, fontSize: 13.5, textAlign: "center" },
+    pauseDaysLabel: { color: colors.textMuted, fontSize: 13, fontWeight: "600", marginTop: 20, marginBottom: 10, textAlign: "center" },
+    pauseStepperRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18 },
+    pauseStepperButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+    pauseStepperValue: { minWidth: 56, textAlign: "center", fontSize: 22, fontWeight: "700", color: colors.text, paddingVertical: 0 },
+    pauseModalActions: { flexDirection: "row", gap: 12, marginTop: 24 },
+    pauseModalCancel: { flex: 1, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: colors.border },
+    pauseModalCancelText: { color: colors.text, fontSize: 15, fontWeight: "700" },
+    pauseModalConfirm: { flex: 1, height: 50, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.warning },
+    pauseModalConfirmText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 
     emptyCard: { borderRadius: 16, borderWidth: 1, borderColor: colors.border, paddingVertical: 24, backgroundColor: colors.surface },
     noMembershipText: { flex: 1, textAlign: "center", color: colors.textMuted, fontSize: 13.5, paddingHorizontal: 20 },
