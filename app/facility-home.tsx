@@ -140,12 +140,16 @@ function useFacilityUI() {
   return context;
 }
 
-function personLine(entry: Entry, t: FacilityUIValue["t"]) {
-  const [first, ...rest] = entry.people;
-  if (!first) return { name: "Guest", meta: "" };
-  const parts = [first.age ? `${first.age} yrs` : null, first.gender || null].filter(Boolean);
-  const name = rest.length ? entry.people.map((person) => person.name).join(", ") : first.name;
-  return { name, meta: parts.join(" · ") };
+// Each entry can hold multiple people (a single QR scan for a family/group
+// membership). Returns one row per person, instead of collapsing the whole
+// group into one comma-joined name, so a group of swimmers lists the same
+// way individual swimmers do.
+function personLines(entry: Entry) {
+  if (entry.people.length === 0) return [{ name: "Guest", meta: "" }];
+  return entry.people.map((person) => {
+    const parts = [person.age ? `${person.age} yrs` : null, person.gender || null].filter(Boolean);
+    return { name: person.name, meta: parts.join(" · ") };
+  });
 }
 
 export default function FacilityConsole() {
@@ -664,27 +668,31 @@ function StaffTab({ pool }: { pool: Pool }) {
       {listTab === "inPool" && (
         <ListSection icon="water-outline" iconColor={colors.primary} emptyIcon="water-outline" title={t("facility.staff.inPoolNow")} count={inPoolNow.length} query={inPoolQuery} onQueryChange={setInPoolQuery} emptyText={t("facility.staff.emptyInPool")}>
           {filteredInPool.map((entry) => {
-            const { name, meta } = personLine(entry, t);
+            const lines = personLines(entry);
+            const groupName = entry.people.map((person) => person.name).join(", ") || "Guest";
             return (
               <Fragment key={entry.id}>
-                <EntryRow
-                  name={name}
-                  meta={meta}
-                  right={
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>
-                      <TouchableOpacity
-                        style={styles.manualExitButton}
-                        onPress={() => setManualExitId((current) => (current === entry.id ? null : entry.id))}
-                      >
-                        <Text style={styles.manualExitButtonText}>{t("facility.staff.exit")}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  }
-                />
+                {lines.map((line, index) => (
+                  <EntryRow
+                    key={`${entry.id}-${index}`}
+                    name={line.name}
+                    meta={line.meta}
+                    right={
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                        <Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>
+                        <TouchableOpacity
+                          style={styles.manualExitButton}
+                          onPress={() => setManualExitId((current) => (current === entry.id ? null : entry.id))}
+                        >
+                          <Text style={styles.manualExitButtonText}>{t("facility.staff.exit")}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    }
+                  />
+                ))}
                 {manualExitId === entry.id && (
                   <View style={styles.manualExitConfirm}>
-                    <Text style={styles.manualExitConfirmText}>{t("facility.staff.manualExitConfirm", { name })}</Text>
+                    <Text style={styles.manualExitConfirmText}>{t("facility.staff.manualExitConfirm", { name: groupName })}</Text>
                     <View style={styles.manualExitConfirmActions}>
                       <TouchableOpacity style={styles.manualExitCancelButton} onPress={() => setManualExitId(null)} disabled={isManualExiting}>
                         <Text style={styles.manualExitCancelButtonText}>{t("common.cancel")}</Text>
@@ -703,13 +711,12 @@ function StaffTab({ pool }: { pool: Pool }) {
 
       {listTab === "entered" && (
         <ListSection icon="arrow-up-outline" iconColor={colors.text} emptyIcon="people-outline" title={t("facility.staff.enteredToday")} count={entries.length} query={enteredQuery} onQueryChange={setEnteredQuery} emptyText={t("facility.staff.emptyEntered")}>
-          {filteredEntered.map((entry) => {
-            const { name, meta } = personLine(entry, t);
-            return (
+          {filteredEntered.map((entry) =>
+            personLines(entry).map((line, index) => (
               <EntryRow
-                key={entry.id}
-                name={name}
-                meta={meta}
+                key={`${entry.id}-${index}`}
+                name={line.name}
+                meta={line.meta}
                 right={
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>
@@ -717,20 +724,19 @@ function StaffTab({ pool }: { pool: Pool }) {
                   </View>
                 }
               />
-            );
-          })}
+            ))
+          )}
         </ListSection>
       )}
 
       {listTab === "exited" && (
         <ListSection icon="arrow-down-outline" iconColor={colors.text} emptyIcon="exit-outline" title={t("facility.staff.exitedToday")} count={exitedToday.length} query={exitedQuery} onQueryChange={setExitedQuery} emptyText={t("facility.staff.emptyExited")}>
-          {filteredExited.map((entry) => {
-            const { name, meta } = personLine(entry, t);
-            return (
+          {filteredExited.map((entry) =>
+            personLines(entry).map((line, index) => (
               <EntryRow
-                key={entry.id}
-                name={name}
-                meta={meta}
+                key={`${entry.id}-${index}`}
+                name={line.name}
+                meta={line.meta}
                 right={
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={styles.rowTime}>{formatTime(entry.exitedAt as number)}</Text>
@@ -739,8 +745,8 @@ function StaffTab({ pool }: { pool: Pool }) {
                   </View>
                 }
               />
-            );
-          })}
+            ))
+          )}
         </ListSection>
       )}
 
@@ -890,14 +896,14 @@ function StaffTab({ pool }: { pool: Pool }) {
 
                 <View style={styles.modalInfoBox}>
                   <View style={styles.modalRow}>
-                    <Text style={styles.modalRowLabel}>{t("facility.staff.sessionsRemaining")}</Text>
-                    <Text style={styles.modalRowValue}>
+                    <Text style={styles.modalInfoBoxLabel}>{t("facility.staff.sessionsRemaining")}</Text>
+                    <Text style={styles.modalInfoBoxValue}>
                       {sessionsRemainingLabel(pendingMemberEntry.membership.sessions, pendingMemberEntry.membership.sessionsUsed, t)}
                     </Text>
                   </View>
                   <View style={styles.modalRow}>
-                    <Text style={styles.modalRowLabel}>{t("facility.staff.validUntil")}</Text>
-                    <Text style={styles.modalRowValue}>{formatValidUntil(pendingMemberEntry.membership.endDate)}</Text>
+                    <Text style={styles.modalInfoBoxLabel}>{t("facility.staff.validUntil")}</Text>
+                    <Text style={styles.modalInfoBoxValue}>{formatValidUntil(pendingMemberEntry.membership.endDate)}</Text>
                   </View>
                 </View>
 
@@ -1698,10 +1704,11 @@ function AdminTab({ pool }: { pool: Pool }) {
               ) : inPoolNow.length === 0 ? (
                 <Text style={styles.sectionEmpty}>{t("facility.admin.poolEmpty")}</Text>
               ) : (
-                inPoolNow.map((entry) => {
-                  const { name, meta } = personLine(entry, t);
-                  return <EntryRow key={entry.id} name={name} meta={meta} right={<Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>} />;
-                })
+                inPoolNow.map((entry) =>
+                  personLines(entry).map((line, index) => (
+                    <EntryRow key={`${entry.id}-${index}`} name={line.name} meta={line.meta} right={<Text style={styles.rowTime}>{formatTime(entry.enteredAt)}</Text>} />
+                  ))
+                )
               )}
             </View>
           </View>
@@ -1726,25 +1733,23 @@ function AdminTab({ pool }: { pool: Pool }) {
                     <Text style={[styles.sessionsHeaderText, styles.colStatus]}>{t("facility.admin.colStatus")}</Text>
                   </View>
                   {sessions.map((entry) => {
-                    const { name } = personLine(entry, t);
-                    const age = entry.people[0]?.age;
-                    const gender = entry.people[0]?.gender;
                     const inPool = !entry.exitedAt;
-                    return (
-                      <View key={entry.id} style={styles.sessionsRow}>
-                        <Text style={[styles.sessionsCellText, styles.colName, { fontWeight: "700", color: colors.text }]} numberOfLines={1}>{name}</Text>
-                        <Text style={[styles.sessionsCellText, styles.colAge]}>{age ?? "—"}</Text>
-                        <Text style={[styles.sessionsCellText, styles.colGender]} numberOfLines={1}>{gender || "—"}</Text>
+                    const people = entry.people.length ? entry.people : [{ name: "Guest" }];
+                    return people.map((person, index) => (
+                      <View key={`${entry.id}-${index}`} style={styles.sessionsRow}>
+                        <Text style={[styles.sessionsCellText, styles.colName, { fontWeight: "700", color: colors.text }]} numberOfLines={1}>{person.name}</Text>
+                        <Text style={[styles.sessionsCellText, styles.colAge]}>{person.age ?? "—"}</Text>
+                        <Text style={[styles.sessionsCellText, styles.colGender]} numberOfLines={1}>{person.gender || "—"}</Text>
                         <Text style={[styles.sessionsCellText, styles.colTime]}>{formatTime(entry.enteredAt)}</Text>
                         <Text style={[styles.sessionsCellText, styles.colTime]}>{entry.exitedAt ? formatTime(entry.exitedAt) : "—"}</Text>
-                        <Text style={[styles.sessionsCellText, styles.colCharge]}>{entry.price != null ? `₹${entry.price}` : "—"}</Text>
+                        <Text style={[styles.sessionsCellText, styles.colCharge]}>{index === 0 && entry.price != null ? `₹${entry.price}` : "—"}</Text>
                         <View style={styles.colStatus}>
                           <View style={[styles.statusPill, inPool ? styles.statusActive : styles.statusExpired]}>
                             <Text style={[styles.statusPillText, inPool ? styles.statusActiveText : styles.statusExpiredText]}>{inPool ? t("facility.admin.inPool") : t("facility.admin.done")}</Text>
                           </View>
                         </View>
                       </View>
-                    );
+                    ));
                   })}
                 </View>
               </ScrollView>
@@ -2678,6 +2683,7 @@ function MembershipHubScreen({
   const { data: tiers = [] } = useMembershipTiersQuery(pool.id);
   const { data: memberships = [] } = useMembershipsByPoolQuery(pool.id);
   const [period, setPeriod] = useState<OverviewPeriod>("month");
+  const [showPeriodMenu, setShowPeriodMenu] = useState(false);
 
   const stats = useMemo(() => {
     const cutoff = periodStartMs(period);
@@ -2689,15 +2695,12 @@ function MembershipHubScreen({
     };
   }, [memberships, tiers, period]);
 
-  function choosePeriod() {
-    const options: { key: OverviewPeriod; label: string }[] = [
-      { key: "today", label: t("facility.membershipMgmt.periodToday") },
-      { key: "week", label: t("facility.membershipMgmt.periodWeek") },
-      { key: "month", label: t("facility.membershipMgmt.periodMonth") },
-      { key: "all", label: t("facility.membershipMgmt.periodAll") },
-    ];
-    Alert.alert(t("facility.membershipMgmt.choosePeriod"), undefined, options.map((o) => ({ text: o.label, onPress: () => setPeriod(o.key) })));
-  }
+  const periodOptions: { key: OverviewPeriod; label: string }[] = [
+    { key: "today", label: t("facility.membershipMgmt.periodToday") },
+    { key: "week", label: t("facility.membershipMgmt.periodWeek") },
+    { key: "month", label: t("facility.membershipMgmt.periodMonth") },
+    { key: "all", label: t("facility.membershipMgmt.periodAll") },
+  ];
 
   function periodLabel() {
     if (period === "today") return t("facility.membershipMgmt.periodToday");
@@ -2753,10 +2756,28 @@ function MembershipHubScreen({
         <View style={styles.overviewCard}>
           <View style={styles.overviewHeader}>
             <Text style={styles.settingsRowTitle}>{t("facility.membershipMgmt.overview")}</Text>
-            <TouchableOpacity style={styles.windowPill} onPress={choosePeriod}>
-              <Text style={styles.filterChipText}>{periodLabel()}</Text>
-              <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
-            </TouchableOpacity>
+            <View>
+              <TouchableOpacity style={styles.windowPill} onPress={() => setShowPeriodMenu((v) => !v)}>
+                <Text style={styles.filterChipText}>{periodLabel()}</Text>
+                <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
+              </TouchableOpacity>
+              {showPeriodMenu && (
+                <View style={styles.periodMenu}>
+                  {periodOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={styles.periodMenuItem}
+                      onPress={() => {
+                        setPeriod(option.key);
+                        setShowPeriodMenu(false);
+                      }}
+                    >
+                      <Text style={[styles.periodMenuItemText, option.key === period && styles.periodMenuItemTextActive]}>{option.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
           </View>
           <View style={styles.overviewStatsRow}>
             <View style={styles.overviewStat}>
@@ -3890,13 +3911,18 @@ function createStyles(colors: ThemeColors) {
     modalPrimaryButton: { height: 52, borderRadius: 14, alignSelf: "stretch", alignItems: "center", justifyContent: "center", marginTop: 18 },
     modalPrimaryButtonGreen: { backgroundColor: colors.success },
     modalPrimaryButtonText: { color: "#fff", fontSize: 15.5, fontWeight: "700" },
-    modalDismiss: { marginTop: 14 },
-    modalDismissText: { color: colors.textMuted, fontSize: 14, fontWeight: "600" },
+    modalDismiss: { marginTop: 14, alignSelf: "stretch", height: 44, borderRadius: 12, borderWidth: 1.5, borderColor: colors.danger, alignItems: "center", justifyContent: "center" },
+    modalDismissText: { color: colors.danger, fontSize: 14, fontWeight: "700" },
     modalIconCircleAmber: { backgroundColor: "#fdf1de", borderWidth: 1, borderColor: "#e8a33d" },
     modalPhoto: { width: 66, height: 66, borderRadius: 33, marginBottom: 10 },
     modalPillAmber: { backgroundColor: "#fdf1de" },
     modalPillTextAmber: { color: "#b9781a" },
+    // Fixed light background (matches the amber VIP theme in both light/dark
+    // mode) needs its own fixed-dark text colors - colors.textMuted/colors.text
+    // turn near-white in dark mode and become invisible against this box.
     modalInfoBox: { alignSelf: "stretch", backgroundColor: "#fdf6e8", borderWidth: 1, borderColor: "#f0dfb0", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 4, marginTop: 14 },
+    modalInfoBoxLabel: { fontSize: 13.5, color: "#8a6d2f" },
+    modalInfoBoxValue: { fontSize: 13.5, fontWeight: "700", color: "#4a3510" },
     modalFreeBox: { alignSelf: "stretch", backgroundColor: colors.successSoft, borderWidth: 1, borderColor: colors.success, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 14, marginTop: 14, alignItems: "center" },
     modalFreeBoxTitle: { color: colors.success, fontWeight: "700", fontSize: 14.5 },
     modalFreeBoxSubtitle: { color: colors.success, fontSize: 12.5, marginTop: 3, textAlign: "center" },
@@ -3965,6 +3991,10 @@ function createStyles(colors: ThemeColors) {
     signupCountNumber: { fontSize: 34, fontWeight: "800", color: colors.primary },
     signupCountLabel: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
     windowPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, height: 34, borderRadius: 17, backgroundColor: colors.surfaceAlt },
+    periodMenu: { position: "absolute", top: 40, right: 0, zIndex: 10, minWidth: 130, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingVertical: 4, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+    periodMenuItem: { paddingHorizontal: 14, paddingVertical: 11 },
+    periodMenuItemText: { fontSize: 14, color: colors.text, textAlign: "right" },
+    periodMenuItemTextActive: { color: colors.primary, fontWeight: "700" },
 
     sessionBarTrack: { width: 44, height: 4, borderRadius: 2, backgroundColor: colors.surfaceAlt, overflow: "hidden" },
     sessionBarFill: { height: 4, borderRadius: 2 },

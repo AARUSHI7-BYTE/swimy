@@ -24,6 +24,7 @@ import {
   NewPool,
   PoolProfileUpdate,
   PricingUpdate,
+  saveUserProfile,
   updatePoolCapacity,
   updatePoolImageUrl,
   updatePoolPricing,
@@ -169,6 +170,15 @@ export function useEnsureUserDocumentMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ uid, phoneNumber }: { uid: string; phoneNumber: string }) => ensureUserDocument(uid, phoneNumber),
+    onSuccess: (_data, { uid }) => queryClient.invalidateQueries({ queryKey: queryKeys.users.byId(uid) }),
+  });
+}
+
+export function useSaveUserProfileMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ uid, profile }: { uid: string; profile: { userName: string; dateOfBirth: string; gender: string } }) =>
+      saveUserProfile(uid, profile),
     onSuccess: (_data, { uid }) => queryClient.invalidateQueries({ queryKey: queryKeys.users.byId(uid) }),
   });
 }
@@ -346,7 +356,8 @@ export function useSetMembershipStatusMutation() {
 export function usePauseMembershipMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ poolId, membershipId }: { poolId: string; membershipId: string }) => pauseMembership(poolId, membershipId),
+    mutationFn: ({ poolId, membershipId, plannedDays }: { poolId: string; membershipId: string; plannedDays?: number | null }) =>
+      pauseMembership(poolId, membershipId, plannedDays ?? null),
     onSuccess: (_data, { poolId }) => invalidateMembershipQueries(queryClient, poolId),
   });
 }
