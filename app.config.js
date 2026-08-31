@@ -1,6 +1,4 @@
-const variant = process.env.APP_VARIANT || "development";
-
-const IS_PROD = variant === "production";
+const IS_PROD = process.env.APP_VARIANT !== "production";
 
 const config = {
   expo: {
