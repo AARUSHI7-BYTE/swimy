@@ -1,4 +1,4 @@
-const IS_PROD = process.env.APP_VARIANT !== "production";
+const IS_DEV = process.env.APP_VARIANT === 'development';
 
 const config = {
   expo: {
@@ -12,10 +12,10 @@ const config = {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
-      bundleIdentifier: IS_PROD
-        ? "com.aromapools.swimy"
-        : "com.aromapools.swimy.dev",
-      googleServicesFile: process.env.GOOGLE_SERVICES_PLIST?? "./GoogleService-Info.plist",
+      bundleIdentifier: IS_DEV
+        ? "com.aromapools.swimy.dev"
+        : "com.aromapools.swimy",
+      googleServicesFile: process.env.GOOGLE_SERVICES_PLIST ?? "./GoogleService-Info.plist",
       infoPlist: {
         ITSAppUsesNonExemptEncryption: false,
       },
@@ -30,7 +30,7 @@ const config = {
       googleServicesFile: process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json",
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
-      package: IS_PROD ? "com.aromapools.swimy" : "com.aromapools.swimy.dev",
+      package: IS_DEV ? "com.aromapools.swimy.dev" : "com.aromapools.swimy",
     },
     web: {
       output: "static",
